@@ -30,9 +30,9 @@ ALLOWED_HOSTS = [
     '127.0.0.1',
     'vz-nemix-2313.ru',
     'verified-greatly-bonefish.ngrok-free.app',
-    'vz-nemix-2313.ru:8000',
-    '45.91.8.222',
-    '45.91.8.222:8000'
+    "185.218.0.96",
+    # '45.91.8.222',
+    # '45.91.8.222:8000'
 ]
 
 
