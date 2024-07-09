@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
+from loguru import logger
 from telebot import TeleBot
 from telebot.util import update_types
 load_dotenv()
@@ -28,6 +29,7 @@ else:
 
 bot = TeleBot(BOT_TOKEN)
 bot.delete_webhook()
+logger.info(f"webhook_url: {url}/webhook")
 bot.set_webhook(
     url=f"{url}/webhook",
     allowed_updates=update_types,
