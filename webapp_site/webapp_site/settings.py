@@ -28,6 +28,7 @@ DEBUG = True
 ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
+    'www.vz-nemix-2313.ru',
     'vz-nemix-2313.ru',
     'verified-greatly-bonefish.ngrok-free.app',
     "185.218.0.96",
