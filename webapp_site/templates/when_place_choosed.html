@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+  
+<head>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8">
+  <title>Выберите место</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    body {
+      color: var(--tg-theme-text-color);
+      background: var(--tg-theme-bg-color);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      font-size: 18px;
+      position: relative;
+      min-height: 100vh;
+    }
+
+    .hint {
+      color: var(--tg-theme-hint-color);
+    }
+
+    .link {
+      color: var(--tg-theme-link-color);
+    }
+
+    .button-container {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1;
+    }
+
+    .button {
+      display: block;
+      width: 100%;
+      max-width: 300px;
+      margin: 0 auto;
+      padding: 10px 20px;
+      font-size: 16px;
+      font-weight: bold;
+      text-align: center;
+      text-decoration: none;
+      color: #ffffff;
+      background-color: #0088cc;
+      border-radius: 5px;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+      transition: background-color 0.3s ease;
+    }
+
+    .button:hover {
+      background-color: #08c;
+    }
+
+    @media (max-width: 600px) {
+      .button {
+        font-size: 34px;
+      }
+    }
+
+    .back-button {
+      font-size: 24px;
+      color: #0088cc;
+      background: none;
+      border: none;
+      cursor: pointer;
+    }
+
+    .back-button:hover {
+      color: #08c;
+    }
+
+    .text-container1 {
+      margin-top: 40px;
+      text-align: absolute;
+    }
+
+    .text-container2 {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      text-align: center;
+    }
+
+    h1 {
+      margin-top: 0;
+    }
+    
+   .container {
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+}
+
+
+
+    
+@import url("https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&display=swap");
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+*,
+*::after,
+*::before {
+  box-sizing: inherit;
+}
+
+.container {
+  display: flex;
+  align-items: center;
+  height: 100vh;
+  justify-content: center;
+}
+@media (max-width: 600px) {
+  .neon-btn {
+    font-size: 20px;
+  }
+}
+
+.neon-btn {
+  border: 1px solid;
+  background-color: transparent;
+  text-transform: uppercase;
+  font-size: 45px;
+  padding: 15px 30px;
+  transition: 0.2s;
+}
+
+.neon-btn--blue {
+  color: #4cc9f0;
+}
+
+.neon-btn--blue:hover {
+  background-color: #4cc9f0;
+  color: #fff;
+  border: 1px solid #4cc9f0;
+  box-shadow: 10px 10px 100px 6px #4cc9f0;
+}
+
+  </style>
+</head>
+<body>
+  <script>
+    let tg = window.Telegram.WebApp;
+    tg.enableClosingConfirmation() // запрашиваем подтверждение закрытия вебапп
+    let profName = document.createElement('p');
+    profName.innerText = `${tg.initDataUnsafe.user.id}`;
+    let profName2 = document.createElement('p');
+    profName2.innerText = `${tg.initDataUnsafe.user.id}`;
+  </script>
+<form method="post">
+    {% csrf_token %}
+  <div class="button-container">
+    <button class="back-button" name="chair_but" value={{ back_value }}>&#8592;</button>
+  </div>
+  <input type="hidden" name="user_id" value="" id="profNameInput">
+</form>
+
+  <div class="text-container1">
+    <h1>{{ text|linebreaksbr }}</h1>
+  </div>
+  <form method="post">
+    {% csrf_token %}
+    <div class="text-container1">
+      <button type="submit" name="chair_but" value={{ button_value }} class="neon-btn neon-btn--blue">Оплатить</button>
+    </div>
+    <input type="hidden" name="user_id" value="" id="profNameInput2">
+  </form>
+  <div class="text-container2">
+  <h5>Доступна оплата только по Пушкинской карте!</h5>
+  </div>
+  <script>
+    const profNameInput = document.getElementById('profNameInput');
+    profNameInput.value = profName.innerText;
+    const profNameInput2 = document.getElementById('profNameInput2');
+    profNameInput2.value = profName2.innerText;
+  </script>
+</body>
+</html>

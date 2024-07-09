@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Оплата</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+        }
+        
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+    </style>
+</head>
+<body>
+    <script>
+       let tg = window.Telegram.WebApp; // получаем объект webapp телеграма 
+       tg.enableClosingConfirmation() // запрашиваем подтверждение закрытия вебапп
+    </script>
+    <iframe src="{{ iframe_url }}"></iframe>
+</body>
+</html>
