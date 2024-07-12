@@ -21,7 +21,7 @@ import send_messages
 
 CustomLogger().add_logger(info_log_file, __name__)
 
-# threading.Thread(target=base_requests.film_update_main).start()
+threading.Thread(target=base_requests.film_update_main).start()
 
 
 @bot.message_handler(content_types=['text', 'comands'], chat_types=['private'], commands=['logs'])

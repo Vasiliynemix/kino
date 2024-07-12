@@ -29,7 +29,6 @@ else:
     url = "https://verified-greatly-bonefish.ngrok-free.app"
 
 CustomLogger().add_logger(os.path.join(Path(__file__).parent.parent.parent, "logs", "info_server.log"), __name__)
-logger.info("test")
 
 
 # обработать все потенциальные ошибки
@@ -37,40 +36,46 @@ logger.info("test")
 # обратить внимание при норм тестах
 # формат цены, чтоб не вышло что мне прислали с копейками и из-за этого я плохую сумму пользователю послал, я же в копейках шлю
 def finishpayment(request, order_id):
-    with sqlite3.connect(db_path, timeout=15000) as data:
-        curs = data.cursor()
-        payment_id = curs.execute("""SELECT payment_id FROM orders WHERE order_id == ?;""", (order_id,)).fetchone()[0]
-    sys.path.append(root_path)
-    from base_requests import check_payment_status
-    check_payment_status(payment_id)
-    return render(request, 'finish.html')
+    try:
+        with sqlite3.connect(db_path, timeout=15000) as data:
+            curs = data.cursor()
+            payment_id = curs.execute("""SELECT payment_id FROM orders WHERE order_id == ?;""", (order_id,)).fetchone()[0]
+        sys.path.append(root_path)
+        from base_requests import check_payment_status
+        check_payment_status(payment_id)
+        return render(request, 'finish.html')
+    except Exception:
+        logger.exception("-")
 
 
 def kino(request, performance_id):
-    # print(request)
-    if request.method == 'POST':  # при нажатии на кнопку
-        form = MyForm(request.POST)
-        if form.is_valid():
-            # print(request.POST)
-            user_id = request.POST['user_id']
-            state, price, place_place, place_row, place_id = request.POST['chair_but'].split(',')
-            if state == 'back':  # если нажал назад, разблокируем все его места
-                unblock_all(user_id, performance_id, 'all')
-                seatMap = create_list_of_buttons(performance_id)
-                form = MyForm()
-                return render(request, 'index.html',
-                              {'form': form, 'seatMap': seatMap, 'down_text': 'Веберите 1 место', 'is_new_data': True})
-            elif state == 'pay':  # если нажал оплатить
-                ret = payment_button_pressed(request, user_id, performance_id, place_id, price)
-                return ret
-            elif state == 'choose_place':  # если выбрал место
-                ret = cheir_choosed(request, performance_id, form)
-                return ret
-    else:  # при первом обращении
-        seatMap = create_list_of_buttons(performance_id)
-        form = MyForm()
-        return render(request, 'index.html',
-                      {'form': form, 'seatMap': seatMap, 'down_text': 'Веберите 1 место', 'is_new_data': True})
+    try:
+        # print(request)
+        if request.method == 'POST':  # при нажатии на кнопку
+            form = MyForm(request.POST)
+            if form.is_valid():
+                # print(request.POST)
+                user_id = request.POST['user_id']
+                state, price, place_place, place_row, place_id = request.POST['chair_but'].split(',')
+                if state == 'back':  # если нажал назад, разблокируем все его места
+                    unblock_all(user_id, performance_id, 'all')
+                    seatMap = create_list_of_buttons(performance_id)
+                    form = MyForm()
+                    return render(request, 'index.html',
+                                  {'form': form, 'seatMap': seatMap, 'down_text': 'Веберите 1 место', 'is_new_data': True})
+                elif state == 'pay':  # если нажал оплатить
+                    ret = payment_button_pressed(request, user_id, performance_id, place_id, price)
+                    return ret
+                elif state == 'choose_place':  # если выбрал место
+                    ret = cheir_choosed(request, performance_id, form)
+                    return ret
+        else:  # при первом обращении
+            seatMap = create_list_of_buttons(performance_id)
+            form = MyForm()
+            return render(request, 'index.html',
+                          {'form': form, 'seatMap': seatMap, 'down_text': 'Веберите 1 место', 'is_new_data': True})
+    except Exception:
+        logger.exception("-")
 
 
 def unblock_all(user_id, performance_id, place_id):

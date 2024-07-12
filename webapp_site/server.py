@@ -1,14 +1,12 @@
 import cherrypy
-from dotenv import load_dotenv
+from django.core.wsgi import get_wsgi_application
+from cherrypy.lib.static import serve_file
+import os
+import django
 
 from pkg.log import CustomLogger
 
 CustomLogger().init_logging()
-from django.core.wsgi import get_wsgi_application
-import os
-import django
-
-# Определите абсолютный путь к файлу settings.py
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'webapp_site.settings')
 django.setup()
 
@@ -24,7 +22,7 @@ if __name__ == '__main__':
     STATIC_DIR = os.path.join(BASE_DIR, 'static')
 
     cherrypy.config.update({
-        'server.socket_host': '0.0.0.0',
+        'server.socket_host': '127.0.0.1',
         'server.socket_port': 8081,
         'engine.autoreload.on': False,
     })

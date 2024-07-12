@@ -25,16 +25,7 @@ SECRET_KEY = 'django-insecure-ofo!vj4jq7x16k!fzl6(c0qo@ts@vk9r-9sn7_$(cboh@5w)2%
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = [
-    'localhost',
-    '127.0.0.1',
-    'www.vz-nemix-2313.ru',
-    'vz-nemix-2313.ru',
-    'verified-greatly-bonefish.ngrok-free.app',
-    "185.218.0.96",
-    # '45.91.8.222',
-    # '45.91.8.222:8000'
-]
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -122,8 +113,6 @@ USE_I18N = True
 
 USE_TZ = True
 
-SECURE_SSL_REDIRECT = True
-
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
@@ -131,7 +120,7 @@ STATIC_URL = '/static/'
 
 STATICFILES_DIRS = [
     BASE_DIR / 'static'
-    ]
+]
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
