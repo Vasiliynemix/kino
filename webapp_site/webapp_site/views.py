@@ -194,11 +194,12 @@ def cheir_choosed(request, performance_id, form):
         "IdPerformance": performance_id,
         "IdPlace": place_id,
         "IdPriceCategory": 17198,
-        "df": "J"}
+        "df": "J"
+    }
 
     logger.info(params)
     response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params)
-    logger.info(response.text)
+    logger.info(decode_unicode(response.text))
     locked_place = response.json()
     # print(locked_place)
     # записываем в базу как заказ со статусом 1
@@ -226,6 +227,16 @@ def cheir_choosed(request, performance_id, form):
         seatMap = create_list_of_buttons(performance_id)
         return render(request, 'index.html',
                       {'form': form, 'seatMap': seatMap, 'down_text': 'Простите, это место уже занято'})
+
+
+def decode_unicode(data):
+    if isinstance(data, str):
+        return data.encode('utf-8').decode('unicode_escape')
+    elif isinstance(data, dict):
+        return {k: decode_unicode(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [decode_unicode(v) for v in data]
+    return data
 
 
 def create_list_of_buttons(performance_id):
