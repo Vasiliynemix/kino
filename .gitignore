@@ -113,6 +113,8 @@ celerybeat-schedule
 # SageMath parsed files
 *.sage.py
 
+kino.db
+
 # Environments
 .env
 .venv

@@ -23,9 +23,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-ofo!vj4jq7x16k!fzl6(c0qo@ts@vk9r-9sn7_$(cboh@5w)2%'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
 ALLOWED_HOSTS = ['*']
+
+CSRF_TRUSTED_ORIGINS = ["https://vz-nemix-2313.ru", "https://verified-greatly-bonefish.ngrok-free.app"]
 
 
 # Application definition
@@ -70,6 +72,8 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'webapp_site.wsgi.application'
+
+CSRF_COOKIE_SECURE = True
 
 
 # Database

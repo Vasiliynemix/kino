@@ -1,3 +1,4 @@
+import json
 import os
 
 import requests
@@ -85,6 +86,9 @@ def all_show_request():
                                  (show['ShowName'], show['Duration'], show['IdShow']))
                     shows = curs.execute("""SELECT name FROM show WHERE show_id == ?;""", (43537885,)).fetchall()
                     # print(shows)
+        except json.JSONDecodeError as json_err:
+            logger.exception("Ошибка декодирования JSON")
+            bot.send_message(5254091301, f'Ошибка при декодировании JSON-ответа от сервера: {json_err}')
         except Exception as e:
             logger.exception("Произошла ошибка")
             bot.send_message(5254091301, f'Ошибка базы по запросу всех show \n{e}')
