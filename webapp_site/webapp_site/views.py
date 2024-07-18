@@ -193,6 +193,7 @@ def cheir_choosed(request, performance_id, form):
         "sp": "WgA_LockPlace",
         "IdPerformance": performance_id,
         "IdPlace": int(place_id),
+        "IdClient": int(buyer_id),
         "IdPriceCategory": 17198,
         "df": "J"
     }
