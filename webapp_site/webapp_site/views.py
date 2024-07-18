@@ -192,7 +192,7 @@ def cheir_choosed(request, performance_id, form):
     params = {
         "sp": "WgA_LockPlace",
         "IdPerformance": performance_id,
-        "IdPlace": place_id,
+        "IdPlace": int(place_id),
         "IdPriceCategory": 17198,
         "df": "J"
     }
