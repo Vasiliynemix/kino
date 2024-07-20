@@ -54,7 +54,7 @@ def kino(request, performance_id):
         if request.method == 'POST':  # при нажатии на кнопку
             form = MyForm(request.POST)
             if form.is_valid():
-                # print(request.POST)
+                logger.info(request.POST)
                 user_id = request.POST['user_id']
                 state, price, place_place, place_row, place_id = request.POST['chair_but'].split(',')
                 if state == 'back':  # если нажал назад, разблокируем все его места
