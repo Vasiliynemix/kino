@@ -100,7 +100,7 @@ def unblock_all(user_id, performance_id, place_id):
                 "sp": "WgA_UnlockPlace",
                 "IdPerformance": order[0],
                 "IdPlace": order[1],
-                "IdClient": order[2],
+                "IdClient": 2024,
                 "df": "J"}
             response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params)
 
@@ -133,11 +133,10 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price):
     # регистрируем заказ
     params = {
         "sp": "WgA_CreateMultyOrder",
-        "IdClient": buyer_id,
+        "IdClient": 2024,
         "df": "J"}
     response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params)
     order_data = response.json()
-    # print(order_data)
     order_id = order_data['IdOrder']
 
     # делаем оплату
