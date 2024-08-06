@@ -245,7 +245,7 @@ def create_list_of_buttons(performance_id):
     t1 = time.time()
     # запрашиваем список всех мест на сеансе
     params = {
-        "sp": "Wga_GetPlacesNC",
+        "sp": "WgA_GetPlaces",
         'IdPerformance': performance_id,
         'IdClient': 2024,
         "df": "J"
