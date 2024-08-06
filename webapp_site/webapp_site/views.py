@@ -245,13 +245,12 @@ def create_list_of_buttons(performance_id):
     t1 = time.time()
     # запрашиваем список всех мест на сеансе
     params = {
-        "sp": "WgA_GetPlaces",
+        "sp": "Wga_GetPlacesNC",
         'IdPerformance': performance_id,
-        'IdClient': 2024,
         "df": "J"
     }
     response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params)
-    # print(response.url)
+    logger.info(decode_unicode(response.text), response.url)
 
     if response.status_code == 200:
         # print(response.text)
