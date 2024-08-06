@@ -247,6 +247,7 @@ def create_list_of_buttons(performance_id):
     params = {
         "sp": "Wga_GetPlacesNC",
         'IdPerformance': performance_id,
+        'IdClient': 2024,
         "df": "J"
     }
     response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params)
