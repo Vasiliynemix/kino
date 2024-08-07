@@ -56,10 +56,11 @@ def film_update_main():
             #     curs = data.cursor()
             #     curs.execute("""UPDATE show SET pushkin_card = 1""")
 
-            time.sleep(30)
         except Exception as e:
             logger.exception("Произошла ошибка")
             bot.send_message(5254091301, f'Ошибка в вызове функций по обновлению всей базы film_update_main\n{e}')
+        finally:
+            time.sleep(30)
 
 
 def all_show_request():
