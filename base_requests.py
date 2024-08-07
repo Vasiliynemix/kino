@@ -51,7 +51,6 @@ def film_update_main():
             # with open('enviroments/kino/film_update.txt', 'a') as file:
             #               file.write(f"")
             # print(f'i = {i}\nall_show_request {round(t2-t1, 3)}\nget_show_info {round(t3-t2, 3)}\nwhat_show_can_be_sell_pushkin_card {round(t4-t3, 3)}\nget_kinopoisk_info {round(t5-t4, 3)}\nall_performances_request {round(t6-t5, 3)}\nunblock_5_min {round(t7-t6, 3)}\ncheck_payment_status {round(t8-t7, 3)}\nвсе {round(t8-t1, 3)}')
-            i += 1
             # with sqlite3.connect(db_path, timeout=15000) as data:
             #     curs = data.cursor()
             #     curs.execute("""UPDATE show SET pushkin_card = 1""")
@@ -60,6 +59,7 @@ def film_update_main():
             logger.exception("Произошла ошибка")
             bot.send_message(5254091301, f'Ошибка в вызове функций по обновлению всей базы film_update_main\n{e}')
         finally:
+            i += 1
             time.sleep(30)
 
 
