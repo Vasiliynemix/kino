@@ -4,7 +4,7 @@ import sys
 from dotenv import load_dotenv
 
 # sys.path.append('/enviroments/kino')
-from config import info_log_file, bot, db_path, error_log_file, root_path, log_dir
+from config import info_log_file, bot, db_path, error_log_file, log_dir
 
 import cherrypy
 

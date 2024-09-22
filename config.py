@@ -5,11 +5,20 @@ from dotenv import load_dotenv
 from loguru import logger
 from telebot import TeleBot
 from telebot.util import update_types
+from yookassa import Configuration
 load_dotenv()
 
 IS_PROD = os.getenv('IS_PROD')
 
 # доки сбера https://securepayments.sberbank.ru/wiki/doku.php/integration:api:rest:requests:getorderstatusextended
+
+# Конфиг для юкассы
+youkassa_shop_id = os.getenv('YOUKASSA_SHOP_ID')
+youkassa_secret_key = os.getenv('YOUKASSA_SECRET_KEY')
+
+Configuration.account_id = int(youkassa_shop_id)
+Configuration.secret_key = youkassa_secret_key
+# Конфиг для юкассы
 
 pro_kino_api_key = os.getenv('PRO_KINO_API_KEY')
 pro_kino_url = os.getenv('PRO_KINO_URL')

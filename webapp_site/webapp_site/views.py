@@ -1,4 +1,5 @@
 import os
+import uuid
 from pathlib import Path
 
 import urllib3
@@ -9,6 +10,7 @@ import sqlite3
 from dotenv import load_dotenv
 from loguru import logger
 from urllib3.exceptions import InsecureRequestWarning
+from yookassa import Payment
 
 from pkg.log import CustomLogger
 from .forms import MyForm
@@ -139,31 +141,47 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price):
     order_data = response.json()
     order_id = order_data['IdOrder']
 
-    # делаем оплату
-    params = {
-        "userName": sber_login,
-        "password": sber_password,
-        "orderNumber": order_id,
-        "amount": int(f'{price}00'),  # отправляем в копейках
-        # "amount": int(f'100'),#отправляем в копейках
-        'sessionTimeoutSecs': 900,  # 15 min
-        "returnUrl": f"{url}/finishpayment/{order_id}",
-        'language': 'ru'
+    # делаем оплату sber
+    # params = {
+    #     "userName": sber_login,
+    #     "password": sber_password,
+    #     "orderNumber": order_id,
+    #     "amount": int(f'{price}00'),  # отправляем в копейках
+    #     # "amount": int(f'100'),#отправляем в копейках
+    #     'sessionTimeoutSecs': 900,  # 15 min
+    #     "returnUrl": f"{url}/finishpayment/{order_id}",
+    #     'language': 'ru'
+    #
+    # }
+    # # Отключение предупреждений о небезопасном соединении
+    # urllib3.disable_warnings(InsecureRequestWarning)
+    # # Создание сессии с отключенной проверкой сертификата
+    # session = requests.Session()
+    # session.verify = False
+    # # Путь к файлу самоподписанного сертификата
+    # # cert_path = '/etc/ssl/certs/Cert_CA.pem'
+    # response = session.get('https://securepayments.sberbank.ru/payment/rest/register.do', params=params)
+    # # print(response.url)
+    # sber = response.json()
+    # payment_link = sber['formUrl']
+    # payment_id = sber['orderId']
+    # logger.info(sber)
 
-    }
-    # Отключение предупреждений о небезопасном соединении
-    urllib3.disable_warnings(InsecureRequestWarning)
-    # Создание сессии с отключенной проверкой сертификата
-    session = requests.Session()
-    session.verify = False
-    # Путь к файлу самоподписанного сертификата
-    # cert_path = '/etc/ssl/certs/Cert_CA.pem'
-    response = session.get('https://securepayments.sberbank.ru/payment/rest/register.do', params=params)
-    # print(response.url)
-    sber = response.json()
-    payment_link = sber['formUrl']
-    payment_id = sber['orderId']
-    logger.info(sber)
+    # делаем оплату юкасса
+    payment = Payment.create({
+        "amount": {
+            "value": str(float(price)),
+            "currency": "RUB"
+        },
+        "confirmation": {
+            "type": "redirect",
+            "return_url": f"{url}/finishpayment/{order_id}"
+        },
+        "description": f"Заказ №{order_id}"
+    }, uuid.uuid4())
+
+    payment_link = payment.confirmation.confirmation_url
+    payment_id = payment.id
 
     # пишем в заявку все данные
     with sqlite3.connect(db_path, timeout=15000) as data:
