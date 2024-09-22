@@ -525,8 +525,6 @@ def check_payment_status(payment_id):
     #                              f'!!!!Ошибка. Заказ оплачен, но в министерство правильно не отправлен\n{e} order_id {order_id} файл {xml_file_name}')
 
     # Если оплата отменена ЮКАССА
-
-    # Если оплата отменена ЮКАССА
     if payment_status == 'canceled':
         params = {
             "sp": "WgA_SetOrderToNull",
@@ -692,7 +690,10 @@ def check_payment_status(payment_id):
 
     else:  # если есть ошибка
         bot.send_message(5254091301,
-                         f'''!!!!!Ошибка в запросе юкассу о проверке статуса заказа\n{payment}''')
+                         f'''!!!!!Ошибка в запросе юкассу о проверке статуса заказа\n{payment.status} {payment.id} {order_id}''')
+        with sqlite3.connect(db_path, timeout=15000) as data:
+            curs = data.cursor()
+            curs.execute("""DELETE orders WHERE payment_id = ?""", (payment_id,))
 
 
 def unblock_5_min():
