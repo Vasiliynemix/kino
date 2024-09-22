@@ -15,9 +15,6 @@ IS_PROD = os.getenv('IS_PROD')
 # Конфиг для юкассы
 youkassa_shop_id = os.getenv('YOUKASSA_SHOP_ID')
 youkassa_secret_key = os.getenv('YOUKASSA_SECRET_KEY')
-
-Configuration.account_id = int(youkassa_shop_id)
-Configuration.secret_key = youkassa_secret_key
 # Конфиг для юкассы
 
 pro_kino_api_key = os.getenv('PRO_KINO_API_KEY')

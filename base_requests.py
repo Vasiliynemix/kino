@@ -13,10 +13,10 @@ import telebot
 import re
 
 from urllib3.exceptions import InsecureRequestWarning
-from yookassa import Payment
+from yookassa import Payment, Configuration
 
 from config import bot, url_kino_baza, url_prokultura, kinopoisk_token, sber_login, sber_password, info_log_file, \
-    db_path, root_path, url
+    db_path, root_path, url, youkassa_shop_id, youkassa_secret_key
 from pkg.log import CustomLogger
 
 CustomLogger().add_logger(info_log_file, __name__)
@@ -347,6 +347,9 @@ def check_payment_status(payment_id):
     # # print(response.url)
     # sber = response.json()
     # print(sber)
+
+    Configuration.account_id = int(youkassa_shop_id)
+    Configuration.secret_key = youkassa_secret_key
 
     payment = Payment.find_one(payment_id)
     payment_status = payment.status

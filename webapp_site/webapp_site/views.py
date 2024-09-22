@@ -10,8 +10,9 @@ import sqlite3
 from dotenv import load_dotenv
 from loguru import logger
 from urllib3.exceptions import InsecureRequestWarning
-from yookassa import Payment
+from yookassa import Payment, Configuration
 
+from config import youkassa_shop_id, youkassa_secret_key
 from pkg.log import CustomLogger
 from .forms import MyForm
 import time, requests, sys
@@ -166,6 +167,9 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price):
     # payment_link = sber['formUrl']
     # payment_id = sber['orderId']
     # logger.info(sber)
+
+    Configuration.account_id = int(youkassa_shop_id)
+    Configuration.secret_key = youkassa_secret_key
 
     # делаем оплату юкасса
     payment = Payment.create({
