@@ -693,9 +693,9 @@ def check_payment_status(payment_id):
     else:  # если есть ошибка
         bot.send_message(5254091301,
                          f'''!!!!!Ошибка в запросе юкассу о проверке статуса заказа\n{payment.status} {payment.id} {order_id}''')
-        with sqlite3.connect(db_path, timeout=15000) as data:
-            curs = data.cursor()
-            curs.execute("""DELETE FROM orders WHERE payment_id = ?""", (payment_id,))
+        # with sqlite3.connect(db_path, timeout=15000) as data:
+        #     curs = data.cursor()
+        #     curs.execute("""DELETE FROM orders WHERE payment_id = ?""", (payment_id,))
 
 
 def unblock_5_min():
