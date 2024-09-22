@@ -687,6 +687,8 @@ def check_payment_status(payment_id):
             bot.send_message(5254091301,
                              f'!!!!Ошибка. Заказ оплачен, но в министерство правильно не отправлен\n{e} order_id {order_id} файл {xml_file_name}')
 
+    elif payment.status in ["pending", "waiting_for_capture"]:
+        pass
 
     else:  # если есть ошибка
         bot.send_message(5254091301,
