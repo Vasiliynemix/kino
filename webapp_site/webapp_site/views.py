@@ -191,7 +191,6 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price):
     }, uuid.uuid4())
 
     payment_link = payment.confirmation.confirmation_url
-    logger.info(payment_link)
     payment_id = payment.id
 
     # пишем в заявку все данные
@@ -200,6 +199,8 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price):
         curs.execute(
             """UPDATE orders SET status = 3, order_id = ?, payment_id = ?, payment_link = ? WHERE performance_id == ? AND place_id == ? AND buyer_id == ? AND user_id == ? AND status == 2""",
             (order_id, payment_id, payment_link, performance_id, place_id, buyer_id, user_id))
+
+    logger.info(f"{order_id} {payment_id} {payment_link} {performance_id} {place_id} {buyer_id} {user_id}")
     return render(request, 'payment.html', {'iframe_url': payment_link})
 
 
