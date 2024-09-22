@@ -12,7 +12,6 @@ from loguru import logger
 from urllib3.exceptions import InsecureRequestWarning
 from yookassa import Payment, Configuration
 
-from config import youkassa_shop_id, youkassa_secret_key
 from pkg.log import CustomLogger
 from .forms import MyForm
 import time, requests, sys
@@ -20,6 +19,9 @@ import json
 load_dotenv()
 
 IS_PROD = os.getenv("IS_PROD")
+
+youkassa_shop_id = os.getenv("YOUKASSA_SHOP_ID")
+youkassa_secret_key = os.getenv("YOUKASSA_SECRET_KEY")
 
 root_path = str(Path(__file__).parent.parent.parent)
 path_to_log = os.path.join(Path(__file__).parent.parent, "logs", "info.log")
