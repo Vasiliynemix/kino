@@ -18,9 +18,12 @@
 </head>
 <body>
     <script>
-       let tg = window.Telegram.WebApp; // получаем объект webapp телеграма 
-       tg.enableClosingConfirmation() // запрашиваем подтверждение закрытия вебапп
+       let tg = window.Telegram.WebApp;
+       tg.enableClosingConfirmation();
+
+       let paymentLink = "{{ iframe_url }}";
+       tg.openLink(paymentLink);
     </script>
-    <iframe src="{{ iframe_url }}"></iframe>
+{#    <iframe src="{{ iframe_url }}"></iframe>#}
 </body>
 </html>

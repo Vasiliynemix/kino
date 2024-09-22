@@ -187,6 +187,7 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price):
     }, uuid.uuid4())
 
     payment_link = payment.confirmation.confirmation_url
+    logger.info(payment_link)
     payment_id = payment.id
 
     # пишем в заявку все данные
