@@ -24,6 +24,12 @@ CustomLogger().add_logger(info_log_file, __name__)
 threading.Thread(target=base_requests.film_update_main).start()
 
 
+@bot.message_handler(content_types=['text', 'comands'], chat_types=['private'], commands=['start'])
+def start_text(message):
+    args = message.text
+    logger.info(f"{args=} start cmd")
+
+
 @bot.message_handler(content_types=['text', 'comands'], chat_types=['private'], commands=['logs'])
 def logs_text(message):
     if message.from_user.id != 5254091301:

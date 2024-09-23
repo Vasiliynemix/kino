@@ -4,7 +4,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import urllib3
-from django.http import HttpResponse
+import telebot
+from telebot import TeleBot
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect
 import sqlite3
 
@@ -20,6 +22,19 @@ import json
 load_dotenv()
 
 IS_PROD = os.getenv("IS_PROD")
+
+if IS_PROD == "True":
+    BOT_TOKEN = os.getenv('BOT_TOKEN')  # http://t.me/Mirkinopro_Bot
+    url = os.getenv('URL')
+    bot_url = "https://t.me/Mirkinopro_Bot"
+    url_server = os.getenv('URL')
+else:
+    url = "https://factual-warthog-witty.ngrok-free.app"
+    url_server = "https://verified-greatly-bonefish.ngrok-free.app"
+    BOT_TOKEN = os.getenv('BOT_TOKEN_TEST')  # https://t.me/test_2_func_bot
+    bot_url = "https://t.me/test_2_func_bot"
+
+bot = TeleBot(BOT_TOKEN)
 
 youkassa_shop_id = os.getenv("YOUKASSA_SHOP_ID")
 youkassa_secret_key = os.getenv("YOUKASSA_SECRET_KEY")
@@ -37,6 +52,39 @@ else:
 CustomLogger().add_logger(os.path.join(Path(__file__).parent.parent.parent, "logs", "info_server.log"), __name__)
 
 
+def process_payment(request):
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        order_id = data['order_id']
+        iframe_url = data['iframe_url']
+        query_id = data['query_id']  # Получаем query_id
+
+        try:
+            # Выполняем логику платежа и заказа
+            with sqlite3.connect(db_path, timeout=15000) as data:
+                curs = data.cursor()
+                order = curs.execute("""SELECT payment_id, payment_link, user_id, price, row, place FROM orders WHERE order_id = ?""", (order_id,)).fetchone()
+                if order is None:
+                    return JsonResponse({"status": "error", "message": "Order not found"}, status=404)
+                payment_link = order[1]
+                user_id = order[2]
+                price = order[3]
+                row = order[4]
+                place = order[5]
+
+                bot.send_message(
+                    user_id,
+                    f"<b>Заказ №{order_id}.\nЦена: {price} р.\nРяд: {row}\nМесто: {place}</b>",
+                    reply_markup=telebot.types.InlineKeyboardMarkup([[telebot.types.InlineKeyboardButton("Оплатить", url=payment_link)]]),
+                    parse_mode='HTML',
+                )
+
+            return JsonResponse({"status": "success"})
+
+        except Exception as e:
+            return JsonResponse({"status": "error", "message": str(e)}, status=500)
+
+
 # обработать все потенциальные ошибки
 
 # обратить внимание при норм тестах
@@ -46,12 +94,39 @@ def finishpayment(request, order_id):
         with sqlite3.connect(db_path, timeout=15000) as data:
             curs = data.cursor()
             payment_id = curs.execute("""SELECT payment_id FROM orders WHERE order_id == ?;""", (order_id,)).fetchone()[0]
+
+        # Здесь идет проверка статуса платежа
         sys.path.append(root_path)
         from base_requests import check_payment_status
         check_payment_status(payment_id)
-        return render(request, 'finish.html')
+
+        # Вместо рендеринга HTML, возвращаем JavaScript, который взаимодействует с Telegram WebApp
+        return HttpResponse("""
+            <script src="https://telegram.org/js/telegram-web-app.js"></script>
+            <script type="text/javascript">
+                let tg = window.Telegram.WebApp;
+                tg.MainButton.setParams({
+                    text: "Оплата завершена",
+                    color: "#4CAF50",
+                    is_active: true
+                });
+                tg.MainButton.show();
+                tg.MainButton.onClick(function(){
+                    tg.close();
+                });
+            </script>
+            """, content_type="text/html")
+
     except Exception:
         logger.exception("-")
+        return HttpResponse("""
+            <script src="https://telegram.org/js/telegram-web-app.js"></script>
+            <script type="text/javascript">
+                let tg = window.Telegram.WebApp;
+                alert("Произошла ошибка при проверке платежа. Попробуйте позже.");
+                tg.close();
+            </script>
+            """, content_type="text/html")
 
 
 def kino(request, performance_id):
@@ -184,7 +259,7 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price):
         },
         "confirmation": {
             "type": "redirect",
-            "return_url": f"{url}/finishpayment/{order_id}"
+            "return_url": f"{bot_url}?start=finishpayment,{order_id}"
         },
         "description": f"Заказ №{order_id}",
         "expires_at": expires_at
@@ -201,7 +276,7 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price):
             (order_id, payment_id, payment_link, performance_id, place_id, buyer_id, user_id))
 
     logger.info(f"{order_id} {payment_id} {payment_link} {performance_id} {place_id} {buyer_id} {user_id}")
-    return render(request, 'payment.html', {'iframe_url': payment_link})
+    return render(request, 'payment.html', {'iframe_url': payment_link, 'close_webapp': True, 'order_id': order_id})
 
 
 def cheir_choosed(request, performance_id, form):

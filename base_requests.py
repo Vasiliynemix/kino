@@ -16,7 +16,7 @@ from urllib3.exceptions import InsecureRequestWarning
 from yookassa import Payment, Configuration
 
 from config import bot, url_kino_baza, url_prokultura, kinopoisk_token, sber_login, sber_password, info_log_file, \
-    db_path, root_path, url, youkassa_shop_id, youkassa_secret_key
+    db_path, root_path, url, youkassa_shop_id, youkassa_secret_key, url_server
 from pkg.log import CustomLogger
 
 CustomLogger().add_logger(info_log_file, __name__)
@@ -525,7 +525,7 @@ def check_payment_status(payment_id):
     #                              f'!!!!Ошибка. Заказ оплачен, но в министерство правильно не отправлен\n{e} order_id {order_id} файл {xml_file_name}')
 
     # Если оплата отменена ЮКАССА
-    if payment_status in ["cancelled", "success", "pending", "waiting_for_capture"]:
+    if payment_status in ["canceled", "success", "pending", "waiting_for_capture"]:
         if payment_status == 'canceled':
             params = {
                 "sp": "WgA_SetOrderToNull",

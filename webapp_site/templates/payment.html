@@ -1,29 +1,52 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Оплата</title>
-    <style>
-        body, html {
-            margin: 0;
-            padding: 0;
-            height: 100%;
-        }
-        
-        iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
-        }
-    </style>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
-    <script>
-       let tg = window.Telegram.WebApp;
-       tg.enableClosingConfirmation();
+<iframe src="{{ iframe_url }}" width="100%" height="600px"></iframe>
 
-       {#let paymentLink = "{{ iframe_url }}";#}
-       {#tg.openLink(paymentLink)#}
+{% if close_webapp %}
+    <script>
+        // Инициализируем Telegram WebApp
+        let tg = window.Telegram.WebApp;
+
+        // Получаем query_id
+        let query_id = tg.initDataUnsafe.query_id;
+
+        // Проверяем, что query_id существует, прежде чем отправлять запрос
+        if (query_id) {
+            fetch('/process_payment/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                body: JSON.stringify({
+                    "order_id": "{{ order_id }}",
+                    "iframe_url": "{{ iframe_url }}",
+                    "query_id": query_id  // Передаем query_id на сервер
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Закрываем WebApp только после успешного запроса
+                if (data.status === 'success') {
+                    tg.close();
+                } else {
+                    alert('Ошибка: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка:', error);
+            });
+        } else {
+            console.error('Не удалось получить query_id.');
+        }
     </script>
-    <iframe src="{{ iframe_url }}"></iframe>
+{% endif %}
 </body>
 </html>

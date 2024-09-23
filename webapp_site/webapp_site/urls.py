@@ -21,6 +21,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 urlpatterns = [
-                  path('kino/<int:performance_id>/', views.kino, name='kino'),
-                  path('finishpayment/<int:order_id>/', views.finishpayment, name='finishpayment'),
+                path('kino/<int:performance_id>/', views.kino, name='kino'),
+                path('finishpayment/<int:order_id>/', views.finishpayment, name='finishpayment'),
+                path('process_payment/', views.process_payment, name='process_payment'),
               ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
