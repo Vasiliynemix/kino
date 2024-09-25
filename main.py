@@ -24,12 +24,6 @@ CustomLogger().add_logger(info_log_file, __name__)
 threading.Thread(target=base_requests.film_update_main).start()
 
 
-@bot.message_handler(content_types=['text', 'comands'], chat_types=['private'], commands=['start'])
-def start_text(message):
-    args = message.text
-    logger.info(f"{args=} start cmd")
-
-
 @bot.message_handler(content_types=['text', 'comands'], chat_types=['private'], commands=['logs'])
 def logs_text(message):
     if message.from_user.id != 5254091301:
@@ -43,6 +37,33 @@ def logs_text(message):
         bot.send_document(message.from_user.id, open(info_server_log_file, 'rb'))
     except Exception as e:
         logger.exception(f"Произошла ошибка {e}")
+
+
+@bot.message_handler(content_types=['text', 'comands'], chat_types=['private'], commands=['start'])
+def start_text(message):
+    args = message.text.split(" ")
+    if len(args) <= 1:
+        return
+
+    if not args[1].startswith("finishpayment"):
+        return
+
+    finishpayment_data = args[1].split(",")
+    if len(finishpayment_data) <= 1:
+        return
+
+    order_id = finishpayment_data[1]
+    try:
+        order_id = int(order_id)
+    except Exception:
+        return
+
+    with sqlite3.connect(db_path, timeout=15000) as data:
+        curs = data.cursor()
+        curs.execute("""SELECT payment_id FROM orders WHERE order_id == ?;""", (order_id,))
+    is_succeeded = base_requests.check_payment_status(order_id)
+    if is_succeeded is True:
+        bot.send_message(message.from_user.id, "Оплата прошла успешно")
 
 
 @bot.message_handler(content_types=['text', 'comands'], chat_types=['private'])
