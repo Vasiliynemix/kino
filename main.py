@@ -125,8 +125,6 @@ def start_text(message):
                                      (performance_data[1],)).fetchone()
             is_fk_report_send = curs.execute("""SELECT report_sented FROM orders WHERE payment_id == ?""",
                                              (payment_id,)).fetchone()[0]
-        if is_fk_report_send == True:  # если уже отправляли отчет, то больше не надо
-            return
     except TypeError:
         bot.send_message(5254091301,
                          f'!!!!Ошибка. Заказ оплачен, но оформить его правильно не вышло\n Я его пропускаю, вот данные клиента и заказа, свяжитесь с ним:order_id {order_data[0]}\nuser_id_tg {order_data[1]}\nperformance {order_data[3]}\nplace_id {order_data[4]}\nряд {order_data[11]}\nместо {order_data[12]}\npayment_id {order_data[6]}')
