@@ -71,8 +71,6 @@ def start_text(message):
 
 @bot.message_handler(content_types=['text', 'comands'], chat_types=['private'], commands=['order_return'])
 def start_text(message):
-
-
     bot.send_message(chat_id=message.from_user.id, text="Заказ возвращен")
     with sqlite3.connect(db_path, timeout=15000) as data:
         curs = data.cursor()
