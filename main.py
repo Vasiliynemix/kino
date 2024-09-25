@@ -46,6 +46,7 @@ def logs_text(message):
 
 @bot.message_handler(content_types=['text', 'comands'], chat_types=['private'], commands=['start'])
 def start_text(message):
+
     args = message.text.split(" ")
     if len(args) <= 1:
         return
