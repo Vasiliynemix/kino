@@ -109,6 +109,7 @@ def start_text(message):
                 response = requests.request("GET", url_kino_baza, params=params)
                 break
             except Exception as e:
+                logger.error(f"time sleep get url_kino_baza: {e}")
                 time.sleep(7)
         payment_kino = response.json()
         # print(payment_kino)
