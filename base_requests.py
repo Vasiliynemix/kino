@@ -652,13 +652,16 @@ def check_payment_status(payment_id):
                 xml_data = ET.tostring(root, encoding='utf-8')
                 xml_file_name = os.path.join(root_path, "xml_files", f'ekb_{fond_kino_id}_{doc_date}145.xml')
                 logger.info(xml_file_name)
-                try:
-                    bot.send_message(5254091301, f'xml_file_name\n{xml_file_name}')
-                except Exception:
-                    pass
                 with open(xml_file_name, 'wb') as file:
                     # Записываем XML-данные в файл
                     file.write(xml_data)
+
+                try:
+                    bot.send_message(5254091301, f'xml_file_name\n{xml_file_name}')
+                    bot.send_document(5254091301, open(xml_file_name, 'rb'))
+                except Exception:
+                    pass
+
                 # print('xml_}', xml_data)
                 # Создаем словарь с логином и паролем
                 auth = {
