@@ -534,7 +534,7 @@ def check_payment_status(payment_id):
                 pass
 
         # Если оплата успешна ЮКАССА
-        elif payment_status == 'succeeded' or payment_status == 'pending':
+        elif payment_status == 'succeeded':
             is_succeeded = True
             try:
                 try:
