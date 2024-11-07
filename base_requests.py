@@ -650,7 +650,7 @@ def check_payment_status(payment_id):
     return is_succeeded
 
 
-check_payment_status("2ebeeb04-000f-5000-a000-109d870811c3")
+# check_payment_status("2ebeeb04-000f-5000-a000-109d870811c3")
 
 
 def unblock_5_min():
