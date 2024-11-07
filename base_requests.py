@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 
@@ -6,17 +7,15 @@ import sqlite3
 import time
 import datetime
 
-import urllib3
 from loguru import logger
 from telebot import types
 import telebot
 import re
 
-from urllib3.exceptions import InsecureRequestWarning
 from yookassa import Payment, Configuration
 
-from config import bot, url_kino_baza, url_prokultura, kinopoisk_token, sber_login, sber_password, info_log_file, \
-    db_path, root_path, url, youkassa_shop_id, youkassa_secret_key, url_server
+from config import bot, url_kino_baza, url_prokultura, kinopoisk_token, info_log_file, \
+    db_path, root_path, url, youkassa_shop_id, youkassa_secret_key, validation_url, pochta_bank_token
 from pkg.log import CustomLogger
 
 CustomLogger().add_logger(info_log_file, __name__)
@@ -26,29 +25,25 @@ def film_update_main():
     i = 1
     while True:
         try:
-            t1 = time.time()
             if i % 2 == 0 or i == 1:
                 all_show_request()
-            t2 = time.time()
+
             get_show_info()
-            t3 = time.time()
+
             if i % 10 == 0 or i == 1:
                 what_show_can_be_sell_pushkin_card()
-            t4 = time.time()
+
             get_kinopoisk_info()
-            t5 = time.time()
             if i % 4 == 0 or i == 1:
                 all_performances_request()
-            t6 = time.time()
+
             unblock_5_min()  # разблокируем все где 5 мин заблочено и не куплено
-            t7 = time.time()
             # проверяем всех кто должен оплатить
             with sqlite3.connect(db_path, timeout=15000) as data:
                 curs = data.cursor()
                 orders = curs.execute("""SELECT payment_id FROM orders WHERE status == 3;""").fetchall()
             for order in orders:
                 check_payment_status(order[0])
-            t8 = time.time()
             # with open('enviroments/kino/film_update.txt', 'a') as file:
             #               file.write(f"")
             # print(f'i = {i}\nall_show_request {round(t2-t1, 3)}\nget_show_info {round(t3-t2, 3)}\nwhat_show_can_be_sell_pushkin_card {round(t4-t3, 3)}\nget_kinopoisk_info {round(t5-t4, 3)}\nall_performances_request {round(t6-t5, 3)}\nunblock_5_min {round(t7-t6, 3)}\ncheck_payment_status {round(t8-t7, 3)}\nвсе {round(t8-t1, 3)}')
@@ -86,7 +81,7 @@ def all_show_request():
                     # если обновили название, то оно обновится в базе
                     curs.execute("""UPDATE show SET name = ?, duration = ? WHERE show_id = ?""",
                                  (show['ShowName'], show['Duration'], show['IdShow']))
-                    shows = curs.execute("""SELECT name FROM show WHERE show_id == ?;""", (43537885,)).fetchall()
+                    # shows = curs.execute("""SELECT name FROM show WHERE show_id == ?;""", (43537885,)).fetchall()
                     # print(shows)
         except json.JSONDecodeError as json_err:
             logger.exception("Ошибка декодирования JSON")
@@ -319,35 +314,172 @@ def user_reg(user_id):  # проверяем зареган ли пользов�
     return
 
 
+def validate_pochta_bank(
+        buyer_info,
+        rrn,
+        event_id,
+        place_id,
+        event_session_timestamp,
+        term_inst_id="11132",
+        organization_id="31698",
+        client_buy_ip_address="0.0.0.0",
+):
+    query_params = {
+        "online": "true"  # "true" если тест, иначе "false"
+    }
+    buyer_hash = hashlib.sha512(buyer_info.encode('utf-8')).hexdigest()
+    json_data = {
+        "buyer": buyer_hash,
+        "termInstId": term_inst_id,
+        "rrn": rrn,  # замените на реальный RRN транзакции
+        "eventId": event_id,  # идентификатор мероприятия
+        "placeId": place_id,  # идентификатор места проведения
+        "organizationId": organization_id,  # идентификатор организатора мероприятия
+        "eventSessionTimestamp": event_session_timestamp,  # UNIX-время начала сеанса (замените на нужное значение)
+        "clientBuyIpAddress": client_buy_ip_address,  # IP-адрес покупателя, либо 0.0.0., если онлайн продажа
+    }
+    headers = {
+        "Authorization": pochta_bank_token,
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+    }
+    response = requests.post(validation_url, headers=headers, params=query_params, json=json_data)
+
+    # Проверка ответа
+    if response.status_code == 200:
+        response = response.json()
+        result = response.get("result")
+        if result == "ACCEPTED":
+            return True, ""
+
+        if result == "DECLINED":
+            print("Транзакция отклонена")
+            reason = response.get("reason")
+            reason_text = ""
+            if reason == "PERSONAL_DATA":
+                reason_text = "Несоответствие ФИО покупателя билета ФИО держателя карты"
+            elif reason == "EVENT":
+                reason_text = "Какая-то проблема с параметрами мероприятия"
+            elif reason == "MULTISESSION":
+                reason_text = "Попытка купить более одного билета на один сеанс мероприятия"
+            elif reason == "PRICE":
+                reason_text = "Некорректная стоимость билета "
+            elif reason == "OTHER":
+                reason_text = ""
+
+            return False, reason_text
+    else:
+        logger.info(f"validate_pochta_bank {response.status_code=}, {response.json()=}")
+        return False, "400"
+
+
+def send_xml_to_ekinobilet(
+        performance_data,
+        show_data,
+        payment,
+        fond_kino_id,
+        place,
+        row,
+        price,
+        payment_id,
+        order_id,
+):
+    try:
+        ##отправка в министерство отчета о продаже
+        import xml.etree.ElementTree as ET
+        # print(performance_data)
+        building_name = performance_data[9]
+        id_procult = show_data[2]
+        seans_date = f'''{performance_data[4].replace('-', '')} {performance_data[5]}'''
+        pu_number = show_data[0]
+        film_name = show_data[1]
+        hall_name = performance_data[3]
+        # выясняем время продажи
+        delta = datetime.timedelta(hours=7)
+        today = datetime.datetime.now(datetime.timezone.utc) + delta
+        sale_date = today.strftime('%Y%m%d %H:%M:%S')
+        doc_date = today.strftime('%Y%m%d_%H%M%S')
+        # rrn = sber['authRefNum']
+        rrn = payment.authorization_details.rrn
+        # # Создаем структуру XML
+        root = ET.Element('seans')
+        root.set('ver', '3.2.0')
+        root.set('org_id', str(fond_kino_id))
+        root.set('showroom', str(hall_name))
+        root.set('seans_date', str(seans_date))
+        root.set('pu_number', str(pu_number))
+        root.set('format', '2D')
+        root.set('seans_title', str(film_name))
+        root.set('event_id', str(id_procult))
+
+        form = ET.SubElement(root, 'form')
+        form.set('place_x', str(place))
+        form.set('place_y', str(row))
+        form.set('section', str(hall_name))
+        form.set('price', str(price))
+        form.set('discount', '0')
+        form.set('ticket_type', 'Основной')
+        form.set('sale_date', str(sale_date))
+        form.set('subscription', 'false')
+        form.set('online', 'true')
+        form.set('webtax_included', 'false')
+        form.set('payment_type', '1')
+        form.set('payment_id', str(rrn))
+        form.set('terminal_id', '26485891')
+        form.set('terminal_owner', '5402052576')
+
+        xml_data = ET.tostring(root, encoding='utf-8')
+        xml_file_name = os.path.join(root_path, "xml_files", f'ekb_{fond_kino_id}_{doc_date}145.xml')
+        logger.info(xml_file_name)
+        with open(xml_file_name, 'wb') as file:
+            # Записываем XML-данные в файл
+            file.write(xml_data)
+
+        try:
+            bot.send_message(5254091301, f'xml_file_name\n{xml_file_name}')
+            bot.send_document(5254091301, open(xml_file_name, 'rb'))
+        except Exception:
+            pass
+
+        # print('xml_}', xml_data)
+        # Создаем словарь с логином и паролем
+        auth = {
+            'login': '505@mirkino.pro',
+            'password': 'pukugk',
+        }
+        # Загружаем XML-файл
+        with open(xml_file_name, 'rb') as file:
+            files = {
+                'XMLfile': file
+            }
+            for i in range(5):
+                try:
+                    response = requests.post('https://ekinobilet.ru/ekbs/upload.aspx', data=auth, files=files)
+                    break
+                except Exception as e:
+                    time.sleep(7)
+        # response = requests.post('https://ekinobilet.ru/ekbs/upload.aspx', data=xml_data, auth=HTTPBasicAuth('505@mirkino.pro', 'pukugk'), headers={'Content-Type': 'application/xml; charset=utf-8'})
+        # print(response.url)
+        # print(response.content.decode('utf-8'))
+        text_resp = str(response.content.decode('utf-8'))
+        # print(text_resp)
+        if 'error' not in text_resp:
+            # print(200)
+            with sqlite3.connect(db_path, timeout=15000) as data:
+                curs = data.cursor()
+                curs.execute("""UPDATE orders SET report_sented = True WHERE payment_id == ?""", (payment_id,))
+
+        else:
+            bot.send_message(5254091301,
+                             f'!!!!Ошибка. Заказ оплачен, но в министерство правильно не отправлен\norder_id {order_id} ошибка {text_resp} файл {xml_file_name}')
+    except Exception as e:
+        logger.exception("Произошла ошибка")
+        bot.send_message(5254091301,
+                         f'!!!!Ошибка. Заказ оплачен, но в министерство правильно не отправлен\n{e} order_id {order_id} файл {xml_file_name}')
+
+
 # проверяем статус переданного платежа, если платеж прошел, то ставим статус ок, если нет, то отменяем, в противном случае ничего не делаем
 def check_payment_status(payment_id):
     is_succeeded = False
-    # params = {
-    #     "userName": sber_login,
-    #     "password": sber_password,
-    #     'orderId': payment_id,
-    #     'language': 'ru'
-    # }
-    #
-    # # Отключение предупреждений о небезопасном соединении
-    # urllib3.disable_warnings(InsecureRequestWarning)
-    #
-    # # Создание сессии с отключенной проверкой сертификата
-    # session = requests.Session()
-    # session.verify = False
-    # for i in range(4):
-    #     try:
-    #         response = session.get(
-    #             'https://securepayments.sberbank.ru/payment/rest/getOrderStatusExtended.do',
-    #             params=params,
-    #         )
-    #         break
-    #     except Exception as e:
-    #         time.sleep(4)
-    #
-    # # print(response.url)
-    # sber = response.json()
-    # print(sber)
 
     Configuration.account_id = int(youkassa_shop_id)
     Configuration.secret_key = youkassa_secret_key
@@ -357,173 +489,21 @@ def check_payment_status(payment_id):
 
     with sqlite3.connect(db_path, timeout=15000) as data:
         curs = data.cursor()
-        order_data = curs.execute("""SELECT * FROM orders WHERE payment_id == ?""", (payment_id,)).fetchone()
+        order_data = curs.execute("""SELECT * FROM orders WHERE payment_id = ?""", (payment_id,)).fetchone()
+
     order_id = order_data[0]
+    place_id = order_data[4]
     price = order_data[5]
     user_id = order_data[1]
     row = order_data[11]
     place = order_data[12]
     performance_id = order_data[3]
 
-    # сбер проверка
-    # if sber['errorCode'] == '0':
-    #     if sber['orderStatus'] in (3, 4, 6):  # платеж несостоялся
-    #         params = {  # отменяем заказ в базе миркино
-    #             "sp": "WgA_SetOrderToNull",
-    #             "idOrder": order_id,
-    #             "df": "J"}
-    #         for i in range(5):
-    #             try:
-    #                 response = requests.request("GET", url_kino_baza, params=params)
-    #                 break
-    #             except Exception as e:
-    #                 time.sleep(7)
-    #         with sqlite3.connect(db_path, timeout=15000) as data:
-    #             curs = data.cursor()
-    #             curs.execute("""UPDATE orders SET status = 0 WHERE payment_id == ?""", (payment_id,))
-    #         perf_markup = types.InlineKeyboardMarkup(row_width=5)
-    #         perf_webapp = types.WebAppInfo(f"{url}/kino/{performance_id}")  # создаем webapp
-    #         perf_but = types.KeyboardButton(text='Тот самый сеанс', web_app=perf_webapp)
-    #         perf_markup.add(perf_but)
-    #         try:
-    #             bot.send_message(user_id,
-    #                              f'Заказ не был оплачен вовремя.\nЕс️ли еще не передумали, то вот тот самый сеанс, можете попробовать еще раз😄',
-    #                              reply_markup=perf_markup)
-    #         except telebot.apihelper.ApiTelegramException:
-    #             pass
-    #     elif sber['orderStatus'] == 2:  # платеж проведен успешно
-    #         try:
-    #             try:
-    #                 bot.send_message(user_id,
-    #                                  f'Заказ успешно оплачен.\nРяд {row} Место {place} Цена {price}\nНомер заказа {order_id}\nПросто продиктуйте номер заказа на входе чтобы пройти в зал☺️')
-    #             except telebot.apihelper.ApiTelegramException:
-    #                 pass
-    #             params = {  # создаем оплату в базе миркино
-    #                 "sp": "WgA_AddPayment",
-    #                 "IdOrder": order_id,
-    #                 "Amount": price,
-    #                 "IdPaymentMethod": 11,
-    #                 "idUser": 1,
-    #                 "df": "J"}
-    #             for i in range(5):
-    #                 try:
-    #                     response = requests.request("GET", url_kino_baza, params=params)
-    #                     break
-    #                 except Exception as e:
-    #                     time.sleep(7)
-    #             payment_kino = response.json()
-    #             # print(payment_kino)
-    #             kino_add_payment_id = payment_kino['IdPayment']
-    #             with sqlite3.connect(db_path, timeout=15000) as data:
-    #                 curs = data.cursor()
-    #                 curs.execute("""UPDATE orders SET status = 1, kino_add_payment_id = ? WHERE payment_id == ?""",
-    #                              (kino_add_payment_id, payment_id))
-    #                 performance_data = curs.execute("""SELECT * FROM performance WHERE performance_id == ?""",
-    #                                                 (performance_id,)).fetchone()
-    #                 fond_kino_id = curs.execute("""SELECT fond_kino_id FROM cinemas WHERE building_id == ?""",
-    #                                             (performance_data[2],)).fetchone()[0]
-    #                 show_data = curs.execute("""SELECT pu_number, name, id_procult FROM show WHERE show_id == ?""",
-    #                                          (performance_data[1],)).fetchone()
-    #                 is_fk_report_send = curs.execute("""SELECT report_sented FROM orders WHERE payment_id == ?""",
-    #                                                  (payment_id,)).fetchone()[0]
-    #             if is_fk_report_send == True:  # если уже отправляли отчет, то больше не надо
-    #                 return
-    #         except TypeError:
-    #             bot.send_message(5254091301,
-    #                              f'!!!!Ошибка. Заказ оплачен, но оформить его правильно не вышло\n Я его пропускаю, вот данные клиента и заказа, свяжитесь с ним:order_id {order_data[0]}\nuser_id_tg {order_data[1]}\nperformance {order_data[3]}\nplace_id {order_data[4]}\nряд {order_data[11]}\nместо {order_data[12]}\npayment_id {order_data[6]}')
-    #             # Антон
-    #             bot.send_message(1013689498,
-    #                              f'!!!!Ошибка. Заказ оплачен, но оформить его правильно не вышло\n Я его пропускаю, вот данные клиента и заказа, свяжитесь с ним:order_id {order_data[0]}\nuser_id_tg {order_data[1]}\nperformance {order_data[3]}\nplace_id {order_data[4]}\nряд {order_data[11]}\nместо {order_data[12]}\npayment_id {order_data[6]}')
-    #             with sqlite3.connect(db_path, timeout=15000) as data:
-    #                 curs = data.cursor()
-    #                 curs.execute("""UPDATE orders SET status = 4 WHERE payment_id == ?""", (payment_id,))
-    #         except Exception as e:
-    #             logger.exception("Произошла ошибка")
-    #             bot.send_message(5254091301,
-    #                              f'!!!!Ошибка. Заказ оплачен, но оформить его правильно не вышло\n{e}\nОтвет на запрос WgA_AddPayment {response.text}, статус {response}')
-    #         try:
-    #             ##отправка в министерство отчета о продаже
-    #             import xml.etree.ElementTree as ET
-    #             # print(performance_data)
-    #             building_name = performance_data[9]
-    #             id_procult = show_data[2]
-    #             seans_date = f'''{performance_data[4].replace('-', '')} {performance_data[5]}'''
-    #             pu_number = show_data[0]
-    #             film_name = show_data[1]
-    #             hall_name = performance_data[3]
-    #             # выясняем время продажи
-    #             delta = datetime.timedelta(hours=7)
-    #             today = datetime.datetime.now(datetime.timezone.utc) + delta
-    #             sale_date = today.strftime('%Y%m%d %H:%M:%S')
-    #             doc_date = today.strftime('%Y%m%d_%H%M%S')
-    #             rrn = sber['authRefNum']
-    #             # # Создаем структуру XML
-    #             root = ET.Element('seans')
-    #             root.set('ver', '3.2.0')
-    #             root.set('org_id', str(fond_kino_id))
-    #             root.set('showroom', str(hall_name))
-    #             root.set('seans_date', str(seans_date))
-    #             root.set('pu_number', str(pu_number))
-    #             root.set('format', '2D')
-    #             root.set('seans_title', str(film_name))
-    #             root.set('event_id', str(id_procult))
-    #
-    #             form = ET.SubElement(root, 'form')
-    #             form.set('place_x', str(place))
-    #             form.set('place_y', str(row))
-    #             form.set('section', str(hall_name))
-    #             form.set('price', str(price))
-    #             form.set('discount', '0')
-    #             form.set('ticket_type', 'Основной')
-    #             form.set('sale_date', str(sale_date))
-    #             form.set('subscription', 'false')
-    #             form.set('online', 'true')
-    #             form.set('webtax_included', 'false')
-    #             form.set('payment_type', '1')
-    #             form.set('payment_id', str(rrn))
-    #             form.set('terminal_id', '26485891')
-    #             form.set('terminal_owner', '5402052576')
-    #
-    #             xml_data = ET.tostring(root, encoding='utf-8')
-    #             xml_file_name = os.path.join(root_path, "xml_files", f'ekb_{fond_kino_id}_{doc_date}145.xml')
-    #             with open(xml_file_name, 'wb') as file:
-    #                 # Записываем XML-данные в файл
-    #                 file.write(xml_data)
-    #             # print('xml_}', xml_data)
-    #             # Создаем словарь с логином и паролем
-    #             auth = {
-    #                 'login': '505@mirkino.pro',
-    #                 'password': 'pukugk',
-    #             }
-    #             # Загружаем XML-файл
-    #             with open(xml_file_name, 'rb') as file:
-    #                 files = {
-    #                     'XMLfile': file
-    #                 }
-    #                 for i in range(5):
-    #                     try:
-    #                         response = requests.post('https://ekinobilet.ru/ekbs/upload.aspx', data=auth, files=files)
-    #                         break
-    #                     except Exception as e:
-    #                         time.sleep(7)
-    #             # response = requests.post('https://ekinobilet.ru/ekbs/upload.aspx', data=xml_data, auth=HTTPBasicAuth('505@mirkino.pro', 'pukugk'), headers={'Content-Type': 'application/xml; charset=utf-8'})
-    #             # print(response.url)
-    #             # print(response.content.decode('utf-8'))
-    #             text_resp = str(response.content.decode('utf-8'))
-    #             # print(text_resp)
-    #             if 'error' not in text_resp:
-    #                 # print(200)
-    #                 with sqlite3.connect(db_path, timeout=15000) as data:
-    #                     curs = data.cursor()
-    #                     curs.execute("""UPDATE orders SET report_sented = True WHERE payment_id == ?""", (payment_id,))
-    #
-    #             else:
-    #                 bot.send_message(5254091301,
-    #                                  f'!!!!Ошибка. Заказ оплачен, но в министерство правильно не отправлен\norder_id {order_id} ошибка {text_resp} файл {xml_file_name}')
-    #         except Exception as e:
-    #             logger.exception("Произошла ошибка")
-    #             bot.send_message(5254091301,
-    #                              f'!!!!Ошибка. Заказ оплачен, но в министерство правильно не отправлен\n{e} order_id {order_id} файл {xml_file_name}')
+    # buyer_info
+    # rrn
+    # performance_id
+    # place_id
+    # event_session_timestamp
 
     # Если оплата отменена ЮКАССА
     if payment_status in ["canceled", "succeeded", "pending", "waiting_for_capture"]:
@@ -554,7 +534,7 @@ def check_payment_status(payment_id):
                 pass
 
         # Если оплата успешна ЮКАССА
-        elif payment_status == 'succeeded':
+        elif payment_status == 'succeeded' or payment_status == 'pending':
             is_succeeded = True
             try:
                 try:
@@ -605,98 +585,67 @@ def check_payment_status(payment_id):
                 logger.exception("Произошла ошибка")
                 bot.send_message(5254091301,
                                  f'!!!!Ошибка. Заказ оплачен, но оформить его правильно не вышло\n{e}\nОтвет на запрос WgA_AddPayment {response.text}, статус {response}')
-            try:
-                ##отправка в министерство отчета о продаже
-                import xml.etree.ElementTree as ET
-                # print(performance_data)
-                building_name = performance_data[9]
-                id_procult = show_data[2]
-                seans_date = f'''{performance_data[4].replace('-', '')} {performance_data[5]}'''
-                pu_number = show_data[0]
-                film_name = show_data[1]
-                hall_name = performance_data[3]
-                # выясняем время продажи
-                delta = datetime.timedelta(hours=7)
-                today = datetime.datetime.now(datetime.timezone.utc) + delta
-                sale_date = today.strftime('%Y%m%d %H:%M:%S')
-                doc_date = today.strftime('%Y%m%d_%H%M%S')
-                # rrn = sber['authRefNum']
-                rrn = payment.id
-                # # Создаем структуру XML
-                root = ET.Element('seans')
-                root.set('ver', '3.2.0')
-                root.set('org_id', str(fond_kino_id))
-                root.set('showroom', str(hall_name))
-                root.set('seans_date', str(seans_date))
-                root.set('pu_number', str(pu_number))
-                root.set('format', '2D')
-                root.set('seans_title', str(film_name))
-                root.set('event_id', str(id_procult))
 
-                form = ET.SubElement(root, 'form')
-                form.set('place_x', str(place))
-                form.set('place_y', str(row))
-                form.set('section', str(hall_name))
-                form.set('price', str(price))
-                form.set('discount', '0')
-                form.set('ticket_type', 'Основной')
-                form.set('sale_date', str(sale_date))
-                form.set('subscription', 'false')
-                form.set('online', 'true')
-                form.set('webtax_included', 'false')
-                form.set('payment_type', '1')
-                form.set('payment_id', str(rrn))
-                form.set('terminal_id', '26485891')
-                form.set('terminal_owner', '5402052576')
+            send_xml_to_ekinobilet(
+                performance_data,
+                show_data,
+                payment,
+                fond_kino_id,
+                place,
+                row,
+                price,
+                payment_id,
+                order_id,
+            )
 
-                xml_data = ET.tostring(root, encoding='utf-8')
-                xml_file_name = os.path.join(root_path, "xml_files", f'ekb_{fond_kino_id}_{doc_date}145.xml')
-                logger.info(xml_file_name)
-                with open(xml_file_name, 'wb') as file:
-                    # Записываем XML-данные в файл
-                    file.write(xml_data)
+            rrn = payment.authorization_details.rrn
 
-                try:
-                    bot.send_message(5254091301, f'xml_file_name\n{xml_file_name}')
-                    bot.send_document(5254091301, open(xml_file_name, 'rb'))
-                except Exception:
-                    pass
+            with sqlite3.connect(db_path, timeout=15000) as data:
+                curs = data.cursor()
+                curs.execute("""SELECT date, time, show_id FROM performance where performance_id = ?""",
+                             (performance_id,))
+                performance = curs.fetchone()
+                curs.execute("""SELECT id_procult FROM show where show_id = ?""", (performance[2],))
+                event_id = curs.fetchone()[0]
 
-                # print('xml_}', xml_data)
-                # Создаем словарь с логином и паролем
-                auth = {
-                    'login': '505@mirkino.pro',
-                    'password': 'pukugk',
-                }
-                # Загружаем XML-файл
-                with open(xml_file_name, 'rb') as file:
-                    files = {
-                        'XMLfile': file
-                    }
-                    for i in range(5):
-                        try:
-                            response = requests.post('https://ekinobilet.ru/ekbs/upload.aspx', data=auth, files=files)
-                            break
-                        except Exception as e:
-                            time.sleep(7)
-                # response = requests.post('https://ekinobilet.ru/ekbs/upload.aspx', data=xml_data, auth=HTTPBasicAuth('505@mirkino.pro', 'pukugk'), headers={'Content-Type': 'application/xml; charset=utf-8'})
-                # print(response.url)
-                # print(response.content.decode('utf-8'))
-                text_resp = str(response.content.decode('utf-8'))
-                # print(text_resp)
-                if 'error' not in text_resp:
-                    # print(200)
-                    with sqlite3.connect(db_path, timeout=15000) as data:
-                        curs = data.cursor()
-                        curs.execute("""UPDATE orders SET report_sented = True WHERE payment_id == ?""", (payment_id,))
+            date_start = performance[0]
+            date_end = performance[1]
+            event_id = event_id
+            date_time_str = f'{date_start} {date_end}'
+            # Преобразование строки в объект datetime
+            date_time_obj = datetime.datetime.strptime(date_time_str, '%Y-%m-%d %H:%M')
 
-                else:
-                    bot.send_message(5254091301,
-                                     f'!!!!Ошибка. Заказ оплачен, но в министерство правильно не отправлен\norder_id {order_id} ошибка {text_resp} файл {xml_file_name}')
-            except Exception as e:
-                logger.exception("Произошла ошибка")
-                bot.send_message(5254091301,
-                                 f'!!!!Ошибка. Заказ оплачен, но в министерство правильно не отправлен\n{e} order_id {order_id} файл {xml_file_name}')
+            # Преобразование datetime в UNIX timestamp
+            event_session_timestamp = int(time.mktime(date_time_obj.timetuple()))
+
+            buyer_info = "зуеввасилийсергеевич"
+
+            ok, text = validate_pochta_bank(
+                buyer_info=buyer_info,
+                rrn=rrn,
+                event_id=event_id,
+                place_id=place_id,
+                event_session_timestamp=event_session_timestamp,
+            )
+            if not ok:
+                if text == "400":
+                    return
+
+                send_xml_to_ekinobilet(
+                    performance_data,
+                    show_data,
+                    payment,
+                    fond_kino_id,
+                    place,
+                    row,
+                    -price,
+                    payment_id,
+                    order_id,
+                )
+                bot.send_message(
+                    user_id,
+                    f"Извините, возникла ошибка, деньги вернутся на вашу карту.\n{text}",
+                )
 
     else:  # если есть ошибка
         bot.send_message(5254091301,
@@ -706,6 +655,9 @@ def check_payment_status(payment_id):
         #     curs.execute("""DELETE FROM orders WHERE payment_id = ?""", (payment_id,))
 
     return is_succeeded
+
+
+# check_payment_status("2ebe7ea2-000f-5000-8000-19bf45fe6178")
 
 
 def unblock_5_min():

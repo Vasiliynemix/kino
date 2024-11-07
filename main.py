@@ -66,8 +66,8 @@ def start_text(message):
 
     with sqlite3.connect(db_path, timeout=15000) as data:
         curs = data.cursor()
-        curs.execute("""SELECT payment_id FROM orders WHERE order_id == ?;""", (order_id,))
-    is_succeeded = base_requests.check_payment_status(order_id)
+        performance = curs.execute("""SELECT payment_id FROM orders WHERE order_id == ?;""", (order_id,))
+    # is_succeeded = base_requests.check_payment_status(performance.fetchone()[0])
 
 
 @bot.message_handler(content_types=['text', 'comands'], chat_types=['private'], commands=['order_return'])

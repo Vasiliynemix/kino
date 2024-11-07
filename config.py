@@ -17,6 +17,11 @@ youkassa_shop_id = os.getenv('YOUKASSA_SHOP_ID')
 youkassa_secret_key = os.getenv('YOUKASSA_SECRET_KEY')
 # Конфиг для юкассы
 
+# конфиг для валидации
+validation_url = os.getenv('VALIDATION_URL')
+pochta_bank_token = os.getenv('POCHTA_BANK_TOKEN')
+# конфиг для валидации
+
 pro_kino_api_key = os.getenv('PRO_KINO_API_KEY')
 pro_kino_url = os.getenv('PRO_KINO_URL')
 kinopoisk_token = os.getenv('KINOPOISK_TOKEN')

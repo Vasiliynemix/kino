@@ -39,11 +39,15 @@ bot = TeleBot(BOT_TOKEN)
 youkassa_shop_id = os.getenv("YOUKASSA_SHOP_ID")
 youkassa_secret_key = os.getenv("YOUKASSA_SECRET_KEY")
 
+validation_url = os.getenv('VALIDATION_URL')
+pochta_bank_token = os.getenv('POCHTA_BANK_TOKEN')
+
 root_path = str(Path(__file__).parent.parent.parent)
 path_to_log = os.path.join(Path(__file__).parent.parent, "logs", "info.log")
 db_path = os.path.join(Path(__file__).parent.parent.parent, "kino.db")
 sber_login = os.getenv("SBER_LOGIN")
 sber_password = os.getenv("SBER_PASSWORD")
+
 if IS_PROD == "True":
     url = os.getenv("URL")
 else:
@@ -75,7 +79,7 @@ def process_payment(request):
                 bot.send_message(
                     user_id,
                     f"<b>Заказ №{order_id}.\nЦена: {price} р.\nРяд: {row}\nМесто: {place}</b>",
-                    reply_markup=telebot.types.InlineKeyboardMarkup([[telebot.types.InlineKeyboardButton("Оплатить", url=payment_link)]]),
+                    reply_markup=telebot.types.InlineKeyboardMarkup([[telebot.types.InlineKeyboardButton("Оплатить по Пушкинской карте", url=payment_link)]]),
                     parse_mode='HTML',
                 )
 
