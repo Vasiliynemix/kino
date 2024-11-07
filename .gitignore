@@ -1,6 +1,8 @@
 *.json
 *.session
 
+kino.db
+
 audio/
 instructions/
 passport/
