@@ -325,7 +325,7 @@ def validate_pochta_bank(
         client_buy_ip_address="0.0.0.0",
 ):
     query_params = {
-        "online": "true"  # "true" если тест, иначе "false"
+        "online": "false"  # "true" если тест, иначе "false"
     }
     buyer_hash = hashlib.sha512(buyer_info.encode('utf-8')).hexdigest()
     json_data = {
@@ -499,15 +499,12 @@ def check_payment_status(payment_id):
     place = order_data[12]
     performance_id = order_data[3]
 
-    # buyer_info
-    # rrn
-    # performance_id
-    # place_id
-    # event_session_timestamp
-
     # Если оплата отменена ЮКАССА
     if payment_status in ["canceled", "succeeded", "pending", "waiting_for_capture"]:
-        if payment_status == 'canceled':
+        if payment_status == "waiting_for_capture":
+            Payment.capture(payment_id)
+
+        elif payment_status == 'canceled':
             params = {
                 "sp": "WgA_SetOrderToNull",
                 "idOrder": order_id,
@@ -569,9 +566,7 @@ def check_payment_status(payment_id):
                     show_data = curs.execute("""SELECT pu_number, name, id_procult FROM show WHERE show_id == ?""",
                                              (performance_data[1],)).fetchone()
                     is_fk_report_send = curs.execute("""SELECT report_sented FROM orders WHERE payment_id == ?""",
-                                                     (payment_id,)).fetchone()[0]
-                if is_fk_report_send == True:  # если уже отправляли отчет, то больше не надо
-                    return
+                                                  (payment_id,)).fetchone()[0]
             except TypeError:
                 bot.send_message(5254091301,
                                  f'!!!!Ошибка. Заказ оплачен, но оформить его правильно не вышло\n Я его пропускаю, вот данные клиента и заказа, свяжитесь с ним:order_id {order_data[0]}\nuser_id_tg {order_data[1]}\nperformance {order_data[3]}\nplace_id {order_data[4]}\nряд {order_data[11]}\nместо {order_data[12]}\npayment_id {order_data[6]}')
@@ -586,17 +581,18 @@ def check_payment_status(payment_id):
                 bot.send_message(5254091301,
                                  f'!!!!Ошибка. Заказ оплачен, но оформить его правильно не вышло\n{e}\nОтвет на запрос WgA_AddPayment {response.text}, статус {response}')
 
-            send_xml_to_ekinobilet(
-                performance_data,
-                show_data,
-                payment,
-                fond_kino_id,
-                place,
-                row,
-                price,
-                payment_id,
-                order_id,
-            )
+            if not is_fk_report_send:
+                send_xml_to_ekinobilet(
+                    performance_data,
+                    show_data,
+                    payment,
+                    fond_kino_id,
+                    place,
+                    row,
+                    price,
+                    payment_id,
+                    order_id,
+                )
 
             rrn = payment.authorization_details.rrn
 
@@ -650,14 +646,11 @@ def check_payment_status(payment_id):
     else:  # если есть ошибка
         bot.send_message(5254091301,
                          f'''!!!!!Ошибка в запросе юкассу о проверке статуса заказа\n{payment.status} {payment.id} {order_id}''')
-        # with sqlite3.connect(db_path, timeout=15000) as data:
-        #     curs = data.cursor()
-        #     curs.execute("""DELETE FROM orders WHERE payment_id = ?""", (payment_id,))
 
     return is_succeeded
 
 
-# check_payment_status("2ebe7ea2-000f-5000-8000-19bf45fe6178")
+check_payment_status("2ebeeb04-000f-5000-a000-109d870811c3")
 
 
 def unblock_5_min():
