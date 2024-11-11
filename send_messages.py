@@ -81,6 +81,8 @@ def send_dates(callback):
         date_but = types.InlineKeyboardButton(text=formatted_dates[i], callback_data=f'choose_date {date_list[i]}')
         date_markup.add(date_but)
         i += 1
+        if i % 7 == 0:
+            break
     try:
         bot.send_message(callback.from_user.id, '*Выберите день:*', reply_markup=date_markup, parse_mode='MARKDOWN')
     except telebot.apihelper.ApiTelegramException:
