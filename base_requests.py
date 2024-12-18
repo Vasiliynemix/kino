@@ -44,7 +44,7 @@ def film_update_main():
                 orders = curs.execute("""SELECT payment_id FROM orders WHERE status == 3;""").fetchall()
             for order in orders:
                 try:
-                    check_payment_status(order[0])
+                    check_payment_status(order[0], report=False)
                 except Exception as e:
                     logger.exception(f"Произошла ошибка в вызове функций по обновлению всей базы film_update_main check_payment_status\n{e}")
                     bot.send_message(5254091301,
@@ -488,7 +488,7 @@ def send_xml_to_ekinobilet(
 
 
 # проверяем статус переданного платежа, если платеж прошел, то ставим статус ок, если нет, то отменяем, в противном случае ничего не делаем
-def check_payment_status(payment_id):
+def check_payment_status(payment_id, report=True):
     is_succeeded = False
 
     Configuration.account_id = int(youkassa_shop_id)
@@ -581,8 +581,9 @@ def check_payment_status(payment_id):
                 bot.send_message(5254091301,
                                  f'!!!!Ошибка. Заказ оплачен, но оформить его правильно не вышло\n Я его пропускаю, вот данные клиента и заказа, свяжитесь с ним:order_id {order_data[0]}\nuser_id_tg {order_data[1]}\nperformance {order_data[3]}\nplace_id {order_data[4]}\nряд {order_data[11]}\nместо {order_data[12]}\npayment_id {order_data[6]}')
                 # Антон
-                bot.send_message(1013689498,
-                                 f'!!!!Ошибка. Заказ оплачен, но оформить его правильно не вышло\n Я его пропускаю, вот данные клиента и заказа, свяжитесь с ним:order_id {order_data[0]}\nuser_id_tg {order_data[1]}\nperformance {order_data[3]}\nplace_id {order_data[4]}\nряд {order_data[11]}\nместо {order_data[12]}\npayment_id {order_data[6]}')
+                if report:
+                    bot.send_message(1013689498,
+                                     f'!!!!Ошибка. Заказ оплачен, но оформить его правильно не вышло\n Я его пропускаю, вот данные клиента и заказа, свяжитесь с ним:order_id {order_data[0]}\nuser_id_tg {order_data[1]}\nperformance {order_data[3]}\nplace_id {order_data[4]}\nряд {order_data[11]}\nместо {order_data[12]}\npayment_id {order_data[6]}')
                 with sqlite3.connect(db_path, timeout=15000) as data:
                     curs = data.cursor()
                     curs.execute("""UPDATE orders SET status = 4 WHERE payment_id == ?""", (payment_id,))
