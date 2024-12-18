@@ -226,9 +226,14 @@ def get_kinopoisk_info():
                     # print(data_kinopoisk['description'], '\n')
                     # print(data_kinopoisk['poster']['url'], '\n')
                     # print(data_kinopoisk['rating']['kp'], '\n')
+                    poster = data_kinopoisk.get("poster")
+                    if poster is None:
+                        poster = ''
+                    else:
+                        poster = poster['url']
                     curs.execute(
                         """UPDATE show SET description = ?, poster = ?, kp_rating = ? WHERE kinopoisk_id == ?""", (
-                            data_kinopoisk['description'], data_kinopoisk['poster']['url'],
+                            data_kinopoisk['description'], poster,
                             data_kinopoisk['rating']['kp'],
                             kinopoisk_id))
                 else:
