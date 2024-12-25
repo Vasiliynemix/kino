@@ -70,39 +70,6 @@ def start_text(message):
     # is_succeeded = base_requests.check_payment_status(performance.fetchone()[0])
 
 
-# @bot.message_handler(content_types=['document'], chat_types=['private'])
-# def start_text(message):
-#     bot.send_message(chat_id=message.from_user.id, text="Заказ возвращен")
-#     file = bot.get_file(message.document.file_id)
-#     doc = bot.download_file(file.file_path)
-#     auth = {
-#         'login': '505@mirkino.pro',
-#         'password': 'pukugk',
-#     }
-#     # with open(xml_file_name, 'rb') as file:
-#     files = {
-#         'XMLfile': doc
-#     }
-#     for i in range(5):
-#         try:
-#             response = requests.post('https://ekinobilet.ru/ekbs/upload.aspx', data=auth, files=files)
-#             break
-#         except Exception as e:
-#             time.sleep(7)
-#         # response = requests.post('https://ekinobilet.ru/ekbs/upload.aspx', data=xml_data, auth=HTTPBasicAuth('505@mirkino.pro', 'pukugk'), headers={'Content-Type': 'application/xml; charset=utf-8'})
-#         # print(response.url)
-#         # print(response.content.decode('utf-8'))
-#     text_resp = str(response.content.decode('utf-8'))
-#     a = 2
-#     # print(text_resp)
-#     # if 'error' not in text_resp:
-#     #     # print(200)
-#     #     with sqlite3.connect(db_path, timeout=15000) as data:
-#     #         curs = data.cursor()
-#     #         curs.execute("""UPDATE orders SET report_sented = True WHERE payment_id == ?""", (payment_id,))
-
-
-
 @bot.message_handler(content_types=['text', 'comands'], chat_types=['private'])
 def state_machine_text(message):
     try:

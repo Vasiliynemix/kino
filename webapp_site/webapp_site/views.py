@@ -224,36 +224,10 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price):
     order_data = response.json()
     order_id = order_data['IdOrder']
 
-    # делаем оплату sber
-    # params = {
-    #     "userName": sber_login,
-    #     "password": sber_password,
-    #     "orderNumber": order_id,
-    #     "amount": int(f'{price}00'),  # отправляем в копейках
-    #     # "amount": int(f'100'),#отправляем в копейках
-    #     'sessionTimeoutSecs': 900,  # 15 min
-    #     "returnUrl": f"{url}/finishpayment/{order_id}",
-    #     'language': 'ru'
-    #
-    # }
-    # # Отключение предупреждений о небезопасном соединении
-    # urllib3.disable_warnings(InsecureRequestWarning)
-    # # Создание сессии с отключенной проверкой сертификата
-    # session = requests.Session()
-    # session.verify = False
-    # # Путь к файлу самоподписанного сертификата
-    # # cert_path = '/etc/ssl/certs/Cert_CA.pem'
-    # response = session.get('https://securepayments.sberbank.ru/payment/rest/register.do', params=params)
-    # # print(response.url)
-    # sber = response.json()
-    # payment_link = sber['formUrl']
-    # payment_id = sber['orderId']
-    # logger.info(sber)
-
     Configuration.account_id = int(youkassa_shop_id)
     Configuration.secret_key = youkassa_secret_key
 
-    expires_at = (datetime.utcnow() + timedelta(minutes=15)).isoformat() + 'Z'
+    expires_at = (datetime.utcnow() + timedelta(minutes=5)).isoformat() + 'Z'
 
     # делаем оплату юкасса
     payment = Payment.create({
