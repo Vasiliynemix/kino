@@ -29,6 +29,18 @@ CustomLogger().add_logger(info_log_file, __name__)
 threading.Thread(target=base_requests.film_update_main).start()
 
 
+@bot.message_handler(content_types=['text', 'comands'], chat_types=['private'], commands=['db'])
+def logs_text(message):
+    if message.from_user.id != 5254091301:
+        return
+
+    try:
+        bot.send_document(message.from_user.id, open("db_path.db", 'rb'))
+    except Exception as e:
+        logger.exception(f"Произошла ошибка {e}")
+
+
+
 @bot.message_handler(content_types=['text', 'comands'], chat_types=['private'], commands=['logs'])
 def logs_text(message):
     if message.from_user.id != 5254091301:
