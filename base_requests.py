@@ -695,26 +695,27 @@ def unblock_5_min(status):
                 except Exception as e:
                     time.sleep(7)
 
-            payment_id = order[3]
+            if status == 3:
+                payment_id = order[3]
 
-            Configuration.account_id = int(youkassa_shop_id)
-            Configuration.secret_key = youkassa_secret_key
+                Configuration.account_id = int(youkassa_shop_id)
+                Configuration.secret_key = youkassa_secret_key
 
-            try:
-                Payment.cancel(payment_id)
-            except Exception as e:
-                logger.exception(f"Произошла ошибка в вызове функций по обновлению всей базы unblock_5_min Payment.cancel\n{e}")
-                bot.send_message(5254091301,
-                                 f'''!!!!!Ошибка в запросе юкассу о проверке статуса заказа\n{payment_id}''')
+                try:
+                    Payment.cancel(payment_id)
+                except Exception as e:
+                    logger.exception(f"Произошла ошибка в вызове функций по обновлению всей базы unblock_5_min Payment.cancel\n{e}")
+                    bot.send_message(5254091301,
+                                     f'''!!!!!Ошибка в запросе юкассу о проверке статуса заказа\n{payment_id}''')
 
-            try:
-                canceled = check_payment_status(payment_id)
-                if canceled != "canceled":
-                    return
-            except Exception as e:
-                logger.exception(f"Произошла ошибка в вызове функций по обновлению всей базы unblock_5_min check_payment_status\n{e}")
-                bot.send_message(5254091301,
-                                 f'''!!!!!Ошибка в запросе юкассу о проверке статуса заказа\n{payment_id}''')
+                try:
+                    canceled = check_payment_status(payment_id)
+                    if canceled != "canceled":
+                        return
+                except Exception as e:
+                    logger.exception(f"Произошла ошибка в вызове функций по обновлению всей базы unblock_5_min check_payment_status\n{e}")
+                    bot.send_message(5254091301,
+                                     f'''!!!!!Ошибка в запросе юкассу о проверке статуса заказа\n{payment_id}''')
 
             curs.execute(
                 """UPDATE orders SET status == 0 WHERE performance_id == ? AND place_id == ? AND buyer_id == ?""",
