@@ -227,8 +227,6 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price):
     Configuration.account_id = int(youkassa_shop_id)
     Configuration.secret_key = youkassa_secret_key
 
-    expires_at = (datetime.utcnow() + timedelta(minutes=5)).isoformat() + 'Z'
-
     # делаем оплату юкасса
     payment = Payment.create({
         "amount": {
@@ -240,7 +238,6 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price):
             "return_url": f"{bot_url}?start=finishpayment,{order_id}"
         },
         "description": f"Заказ №{order_id}",
-        "expires_at": expires_at
     }, uuid.uuid4())
 
     payment_link = payment.confirmation.confirmation_url
