@@ -35,7 +35,7 @@ def logs_text(message):
         return
 
     try:
-        bot.send_document(message.from_user.id, open("db_path.db", 'rb'))
+        bot.send_document(message.from_user.id, open(db_path, 'rb'))
     except Exception as e:
         logger.exception(f"Произошла ошибка {e}")
 
