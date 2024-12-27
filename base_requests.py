@@ -37,14 +37,17 @@ def film_update_main():
             if i % 4 == 0 or i == 1:
                 all_performances_request()
 
-            unblock_5_min()  # разблокируем все где 5 мин заблочено и не куплено
+            unblock_5_min(2)  # разблокируем все где 5 мин заблочено и не куплено
+
+            unblock_5_min(3)  # разблокируем все где 5 мин есть ссылка, но не оплочено
+
             # проверяем всех кто должен оплатить
             with sqlite3.connect(db_path, timeout=15000) as data:
                 curs = data.cursor()
                 orders = curs.execute("""SELECT payment_id FROM orders WHERE status == 3;""").fetchall()
             for order in orders:
                 try:
-                    check_payment_status(order[0], report=False)
+                    check_payment_status(order[0])
                 except Exception as e:
                     logger.exception(f"Произошла ошибка в вызове функций по обновлению всей базы film_update_main check_payment_status\n{e}")
                     bot.send_message(5254091301,
@@ -540,6 +543,8 @@ def check_payment_status(payment_id, report=True):
             except telebot.apihelper.ApiTelegramException:
                 pass
 
+            return "canceled"
+
         # Если оплата успешна ЮКАССА
         elif payment_status == 'succeeded':
             is_succeeded = True
@@ -664,13 +669,13 @@ def check_payment_status(payment_id, report=True):
 # check_payment_status("2ebeeb04-000f-5000-a000-109d870811c3")
 
 
-def unblock_5_min():
+def unblock_5_min(status):
     with sqlite3.connect(db_path, timeout=15000) as data:
         curs = data.cursor()
         # берем все брони где не создан заказ и прошло 5 мин
         place_to_unblock = curs.execute(
-            """SELECT performance_id, place_id, buyer_id FROM orders WHERE status == 2 AND place_locked_time < ?;""",
-            (time.time() - 300,)).fetchall()
+            """SELECT performance_id, place_id, buyer_id, payment_id FROM orders WHERE status == ? AND place_locked_time < ?;""",
+            (status, time.time() - 300,)).fetchall()
         # print(time.time()-900)
         # print('11111111', place_to_unblock)
         # проходимся по всем таким броням
@@ -689,6 +694,27 @@ def unblock_5_min():
                     break
                 except Exception as e:
                     time.sleep(7)
+
+            payment_id = order[3]
+
+            Configuration.account_id = int(youkassa_shop_id)
+            Configuration.secret_key = youkassa_secret_key
+
+            try:
+                Payment.cancel(payment_id)
+            except Exception as e:
+                logger.exception(f"Произошла ошибка в вызове функций по обновлению всей базы unblock_5_min Payment.cancel\n{e}")
+                bot.send_message(5254091301,
+                                 f'''!!!!!Ошибка в запросе юкассу о проверке статуса заказа\n{payment_id}''')
+
+            try:
+                canceled = check_payment_status(payment_id)
+                if canceled != "canceled":
+                    return
+            except Exception as e:
+                logger.exception(f"Произошла ошибка в вызове функций по обновлению всей базы unblock_5_min check_payment_status\n{e}")
+                bot.send_message(5254091301,
+                                 f'''!!!!!Ошибка в запросе юкассу о проверке статуса заказа\n{payment_id}''')
 
             curs.execute(
                 """UPDATE orders SET status == 0 WHERE performance_id == ? AND place_id == ? AND buyer_id == ?""",

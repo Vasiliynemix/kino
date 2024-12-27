@@ -14,7 +14,7 @@ with sqlite3.connect(db_path, timeout=15000) as data:
     #status
     #0 - заказ не состоялся
     #1 - заказ оплачен
-    #2 - забронировано место          = через 15 минут после создания сбрасываем если не продвинулось дальше
+    #2 - забронировано место          = через 5 минут после создания сбрасываем если не продвинулось дальше
     #3 - создан заказ и пользователь переправлен на форму оплаты
     #4 - не смог обработать вероятно оплаченный заказ и написал об этом 
     curs.execute("""CREATE TABLE IF NOT EXISTS orders(
@@ -66,13 +66,15 @@ with sqlite3.connect(db_path, timeout=15000) as data:
 			address TEXT,
 			fond_kino_id INTEGER
             )""")
+
     curs.execute("""INSERT OR IGNORE INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (2515, 'Орион', 'Бердск', 'г. Бердск, ул. Островского, 69', 1629);""")
     curs.execute("""INSERT OR IGNORE INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (3522, 'Планета кино', 'Бийск', 'г. Бийск, ул. Советская, 205/2', 1626);""")
     # curs.execute("""INSERT OR IGNORE INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (9054, 'Голден синема', 'Новосибирск', 'г. Новосибирск ул.Курчатова 1');""")
     curs.execute("""INSERT OR IGNORE INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (5041, 'Планета кино', 'Горно-Алтайск', 'г. Горно-Алтайск, пр. Коммунистический, 11', 1627);""")
     curs.execute("""INSERT OR IGNORE INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (1009, 'Россия', 'Искитим', 'г. Искитим, пр. Юбилейный, 15', 1628);""")
-    curs.execute("""INSERT OR IGNORE INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (508, 'Променад 2', 'Кемерово', 'г. Кемерово, пр. Химиков, 39', 1625);""")
-    curs.execute("""INSERT OR IGNORE INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (6544, 'Променад 3', 'Кемерово', 'г. Кемерово, пр. Ленина, 59а', 1529);""")
+    curs.execute("""DELETE FROM cinemas WHERE city = 'Кемерово';""")
+    # curs.execute("""INSERT OR IGNORE INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (508, 'Променад 2', 'Кемерово', 'г. Кемерово, пр. Химиков, 39', 1625);""")
+    # curs.execute("""INSERT OR IGNORE INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (6544, 'Променад 3', 'Кемерово', 'г. Кемерово, пр. Ленина, 59а', 1529);""")
     # curs.execute("""INSERT OR IGNORE INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (9053, 'МКП ККК им. В.В. Маяковского', 'Новосибирск', 'г. Новосибирск, красный проспект 17');""")
     curs.execute("""INSERT OR IGNORE INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (1511, 'Аврора', 'Новосибирск', 'г. Новосибирск, пр. Карла Маркса, 49', 1632);""")
     curs.execute("""INSERT OR IGNORE INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (3516, 'Горизонт', 'Новосибирск', 'г. Новосибирск, ул. Бориса Богаткова, 266', 1633);""")
