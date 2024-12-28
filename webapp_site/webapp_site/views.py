@@ -215,7 +215,7 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price):
 
     # регистрируем заказ
     params = {
-        "sp": "WgA_CreateOrder",
+        "sp": "WgA_CreateMultiOrder",
         "IdClient": 2024,
         "df": "J"}
     response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params)
@@ -227,9 +227,9 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price):
         return render(request, 'finish.html')
 
     try:
-        order_id = order_data['idOrder']
+        order_id = order_data['IdOrder']
     except KeyError:
-        order_id = order_data[0]['idOrder']
+        order_id = order_data[0]['IdOrder']
 
     Configuration.account_id = int(youkassa_shop_id)
     Configuration.secret_key = youkassa_secret_key
