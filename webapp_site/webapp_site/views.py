@@ -222,10 +222,11 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price):
     response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params)
     order_data = response.json()
 
-    if order_data.get('Error') is not None:
-        bot.send_message(user_id,
-                         f'''Какая-то ошибка, попробуйте позже.\n{order_data.get('Error')}''')
-        return render(request, 'finish.html')
+    if isinstance(order_data, dict):
+        if order_data.get('Error') is not None:
+            bot.send_message(user_id,
+                             f'''Какая-то ошибка, попробуйте позже.\n{order_data.get('Error')}''')
+            return render(request, 'finish.html')
 
     try:
         order_id = order_data['IdOrder']
