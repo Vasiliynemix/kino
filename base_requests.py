@@ -17,7 +17,6 @@ from yookassa import Payment, Configuration
 from config import bot, url_kino_baza, url_prokultura, kinopoisk_token, info_log_file, \
     db_path, root_path, url, youkassa_shop_id, youkassa_secret_key, validation_url, pochta_bank_token
 from pkg.log import CustomLogger
-from webapp_site.views import unblock_all
 
 CustomLogger().add_logger(info_log_file, __name__)
 
@@ -667,6 +666,37 @@ def check_payment_status(payment_id, report=True):
                          f'''!!!!!Ошибка в запросе юкассу о проверке статуса заказа\n{payment.status} {payment.id} {order_id}''')
 
     return is_succeeded
+
+
+def unblock_all(user_id, performance_id, place_id):
+    with sqlite3.connect(db_path, timeout=15000) as data:
+        curs = data.cursor()
+        if place_id == 'all':
+            # берем все брони у пользователя на этот сеанс
+            orders_to_close = curs.execute(
+                """SELECT performance_id, place_id, buyer_id FROM orders WHERE user_id == ? AND performance_id == ? AND status == 2;""",
+                (user_id, performance_id)).fetchall()
+        else:
+            # берем все брони кроме place_id который нам передали
+            orders_to_close = curs.execute(
+                """SELECT performance_id, place_id, buyer_id FROM orders WHERE user_id == ? AND performance_id == ? AND status == 2 AND place_id IS NOT ?;""",
+                (user_id, performance_id, place_id)).fetchall()
+
+        # print('11111111', orders_to_close)
+        # проходимся по всем таким броням
+        for order in orders_to_close:
+            # print(order)
+            params = {
+                "sp": "WgA_UnlockPlace",
+                "IdPerformance": order[0],
+                "IdPlace": order[1],
+                "IdClient": 2024,
+                "df": "J"}
+            response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params)
+
+            curs.execute(
+                """UPDATE orders SET status == 0 WHERE performance_id == ? AND place_id == ? AND buyer_id == ? AND user_id == ?""",
+                (order[0], order[1], order[2], user_id))
 
 
 # check_payment_status("2ebeeb04-000f-5000-a000-109d870811c3")
