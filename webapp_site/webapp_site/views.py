@@ -332,8 +332,8 @@ def create_list_of_buttons(performance_id):
         "df": "J"
     }
     response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params)
-    logger.info(decode_unicode(response.text))
-    logger.info(response.url)
+    # logger.info(decode_unicode(response.text))
+    # logger.info(response.url)
 
     if response.status_code == 200:
         # print(response.text)
