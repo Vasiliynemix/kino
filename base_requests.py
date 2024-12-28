@@ -17,6 +17,7 @@ from yookassa import Payment, Configuration
 from config import bot, url_kino_baza, url_prokultura, kinopoisk_token, info_log_file, \
     db_path, root_path, url, youkassa_shop_id, youkassa_secret_key, validation_url, pochta_bank_token
 from pkg.log import CustomLogger
+from webapp_site.views import unblock_all
 
 CustomLogger().add_logger(info_log_file, __name__)
 
@@ -548,6 +549,7 @@ def check_payment_status(payment_id, report=True):
 
         # Если оплата успешна ЮКАССА
         elif payment_status == 'succeeded':
+            unblock_all(user_id, performance_id, place_id)
             is_succeeded = True
             try:
                 try:

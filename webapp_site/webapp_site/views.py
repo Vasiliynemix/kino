@@ -205,8 +205,7 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price):
             """SELECT row, place, price, order_id FROM orders WHERE user_id == ? AND performance_id == ? AND status == 1;""",
             (user_id, performance_id)).fetchone()
 
-    unblock_all(user_id, performance_id,
-                place_id)  # если у пользователя были другие брони, снимаем их, чтобы не дать ему купить 2 билета
+    unblock_all(user_id, performance_id, place_id)  # если у пользователя были другие брони, снимаем их, чтобы не дать ему купить 2 билета
 
     if did_he_almoust_bye != None:  # если уже успешно купил билет на сеанс
         from config import bot
