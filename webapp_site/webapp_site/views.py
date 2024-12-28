@@ -215,7 +215,7 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price):
 
     # регистрируем заказ
     params = {
-        "sp": "WgA_CreateMultyOrder",
+        "sp": "WgA_CreateOrder",
         "IdClient": 2024,
         "df": "J"}
     response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params)
