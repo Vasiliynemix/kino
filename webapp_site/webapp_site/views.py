@@ -227,9 +227,9 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price):
         return render(request, 'finish.html')
 
     try:
-        order_id = order_data['IdOrder']
+        order_id = order_data['idOrder']
     except KeyError:
-        order_id = order_data[0]['IdOrder']
+        order_id = order_data[0]['idOrder']
 
     Configuration.account_id = int(youkassa_shop_id)
     Configuration.secret_key = youkassa_secret_key
