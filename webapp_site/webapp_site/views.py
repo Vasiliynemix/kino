@@ -220,6 +220,9 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price):
         "df": "J"}
     response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params)
     order_data = response.json()
+
+    logger.info(f"order_data: {order_data}")
+
     order_id = order_data['IdOrder']
 
     Configuration.account_id = int(youkassa_shop_id)
