@@ -208,7 +208,6 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price):
     unblock_all(user_id, performance_id, place_id)  # если у пользователя были другие брони, снимаем их, чтобы не дать ему купить 2 билета
 
     if did_he_almoust_bye != None:  # если уже успешно купил билет на сеанс
-        from config import bot
         import telebot
         bot.send_message(user_id,
                          f'''На сеанс можно купить только 1 билет по Пушкинской карте\nВаш билет\nРяд {did_he_almoust_bye[0]} Место {did_he_almoust_bye[1]} Цена {did_he_almoust_bye[2]}\nНомер заказа {did_he_almoust_bye[3]}''')
