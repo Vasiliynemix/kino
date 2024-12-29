@@ -153,6 +153,7 @@ def kino(request, performance_id):
                                   {'form': form, 'seatMap': seatMap, 'down_text': 'Веберите 1 место', 'is_new_data': True})
                 elif state == 'pay':  # если нажал оплатить
                     ret = payment_button_pressed(request, user_id, performance_id, place_id, price, order_id)
+                    unblock_all(user_id, performance_id, 'all')
                     return ret
                 elif state == 'choose_place':  # если выбрал место
                     ret = cheir_choosed(request, user_id, performance_id, place_id, price, order_id, form)
