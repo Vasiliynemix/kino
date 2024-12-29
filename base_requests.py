@@ -520,9 +520,8 @@ def check_payment_status(payment_id, report=True):
 
         elif payment_status == 'canceled':
             params = {
-                # TODO
-                "sp": "RRWgA_SetOrderToNull",
-                "IdOrder": order_id,
+                "sp": "WgA_SetOrderToNull",
+                "idOrder": order_id,
                 "df": "J",
             }
             for i in range(5):
@@ -530,6 +529,8 @@ def check_payment_status(payment_id, report=True):
                     response = requests.request("GET", url_kino_baza, params=params)
                     break
                 except Exception as e:
+                    bot.send_message(5254091301,
+                                     f'!!!!Ошибка. Заказ canceled, но отменить не вышло {e}')
                     logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
                     time.sleep(7)
             with sqlite3.connect(db_path, timeout=15000) as data:
@@ -676,12 +677,12 @@ def unblock_all(user_id, performance_id, place_id):
         if place_id == 'all':
             # берем все брони у пользователя на этот сеанс
             orders_to_close = curs.execute(
-                """SELECT performance_id, place_id, buyer_id FROM orders WHERE user_id == ? AND performance_id == ? AND status == 2;""",
+                """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id == ? AND performance_id == ? AND status == 2;""",
                 (user_id, performance_id)).fetchall()
         else:
             # берем все брони кроме place_id который нам передали
             orders_to_close = curs.execute(
-                """SELECT performance_id, place_id, buyer_id FROM orders WHERE user_id == ? AND performance_id == ? AND status == 2 AND place_id IS NOT ?;""",
+                """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id == ? AND performance_id == ? AND status == 2 AND place_id IS NOT ?;""",
                 (user_id, performance_id, place_id)).fetchall()
 
         # print('11111111', orders_to_close)
@@ -689,12 +690,19 @@ def unblock_all(user_id, performance_id, place_id):
         for order in orders_to_close:
             # print(order)
             params = {
-                "sp": "WgA_UnlockPlace",
-                "IdPerformance": order[0],
-                "IdPlace": order[1],
-                "IdClient": 2024,
-                "df": "J"}
-            response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params)
+                "sp": "WgA_SetOrderToNull",
+                "idOrder": order[3],
+                "df": "J",
+            }
+            for i in range(5):
+                try:
+                    response = requests.request("GET", url_kino_baza, params=params)
+                    break
+                except Exception as e:
+                    bot.send_message(5254091301,
+                                     f'!!!!Ошибка. Заказ unblock_all, но отменить не вышло {e}')
+                    logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
+                    time.sleep(7)
 
             curs.execute(
                 """UPDATE orders SET status == 0 WHERE performance_id == ? AND place_id == ? AND buyer_id == ? AND user_id == ?""",
@@ -709,7 +717,7 @@ def unblock_5_min(status):
         curs = data.cursor()
         # берем все брони где не создан заказ и прошло 5 мин
         place_to_unblock = curs.execute(
-            """SELECT performance_id, place_id, buyer_id, payment_id FROM orders WHERE status == ? AND place_locked_time < ?;""",
+            """SELECT performance_id, place_id, buyer_id, payment_id, order_id FROM orders WHERE status == ? AND place_locked_time < ?;""",
             (status, time.time() - 300,)).fetchall()
         # print(time.time()-900)
         # print('11111111', place_to_unblock)
@@ -717,17 +725,18 @@ def unblock_5_min(status):
         for order in place_to_unblock:
             # print(order)
             params = {
-                "sp": "WgA_UnlockPlace",
-                "IdPerformance": order[0],
-                "IdPlace": order[1],
-                "IdClient": order[2],
-                "df": "J"}
+                "sp": "WgA_SetOrderToNull",
+                "idOrder": order[4],
+                "df": "J",
+            }
             for i in range(5):
                 try:
-                    response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php',
-                                                params=params)
+                    response = requests.request("GET", url_kino_baza, params=params)
                     break
                 except Exception as e:
+                    bot.send_message(5254091301,
+                                     f'!!!!Ошибка. Заказ unblock_5_min, но отменить не вышло {e}')
+                    logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
                     time.sleep(7)
 
             if status == 3:
@@ -754,8 +763,8 @@ def unblock_5_min(status):
                                      f'''!!!!!Ошибка в запросе юкассу о проверке статуса заказа\n{payment_id}''')
 
             curs.execute(
-                """UPDATE orders SET status == 0 WHERE performance_id == ? AND place_id == ? AND buyer_id == ?""",
-                (order[0], order[1], order[2]))
+                """UPDATE orders SET status == 0 WHERE order_id == ?""",
+                (order[4],))
 
 # def to_null():
 
