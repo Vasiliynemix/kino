@@ -27,22 +27,23 @@
                 },
                 body: JSON.stringify({
                     "order_id": "{{ order_id }}",
+                    "place_locked_time": "{{ place_locked_time }}",
                     "iframe_url": "{{ iframe_url }}",
                     "query_id": query_id  // Передаем query_id на сервер
                 })
             })
-            .then(response => response.json())
-            .then(data => {
-                // Закрываем WebApp только после успешного запроса
-                if (data.status === 'success') {
-                    tg.close();
-                } else {
-                    alert('Ошибка: ' + data.message);
-                }
-            })
-            .catch(error => {
-                console.error('Ошибка:', error);
-            });
+                .then(response => response.json())
+                .then(data => {
+                    // Закрываем WebApp только после успешного запроса
+                    if (data.status === 'success') {
+                        tg.close();
+                    } else {
+                        alert('Ошибка: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка:', error);
+                });
         } else {
             console.error('Не удалось получить query_id.');
         }
