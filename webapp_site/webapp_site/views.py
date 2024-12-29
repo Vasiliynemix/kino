@@ -15,7 +15,6 @@ from loguru import logger
 from urllib3.exceptions import InsecureRequestWarning
 from yookassa import Payment, Configuration
 
-from config import url_kino_baza
 from pkg.log import CustomLogger
 from .forms import MyForm
 import time, requests, sys
