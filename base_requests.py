@@ -732,6 +732,7 @@ def unblock_5_min(status):
             for i in range(5):
                 try:
                     response = requests.request("GET", url_kino_baza, params=params)
+                    logger.info(decode_unicode(response.text))
                     break
                 except Exception as e:
                     bot.send_message(5254091301,
@@ -765,6 +766,16 @@ def unblock_5_min(status):
             curs.execute(
                 """UPDATE orders SET status == 0 WHERE order_id == ?""",
                 (order[4],))
+
+
+def decode_unicode(data):
+    if isinstance(data, str):
+        return data.encode('utf-8').decode('unicode_escape')
+    elif isinstance(data, dict):
+        return {k: decode_unicode(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [decode_unicode(v) for v in data]
+    return data
 
 # def to_null():
 
