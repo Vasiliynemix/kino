@@ -15,6 +15,7 @@ from loguru import logger
 from urllib3.exceptions import InsecureRequestWarning
 from yookassa import Payment, Configuration
 
+from config import url_kino_baza
 from pkg.log import CustomLogger
 from .forms import MyForm
 import time, requests, sys
@@ -36,6 +37,7 @@ else:
 
 bot = TeleBot(BOT_TOKEN)
 
+url_kino_baza = os.getenv("URL_KINO_BAZA")
 youkassa_shop_id = os.getenv("YOUKASSA_SHOP_ID")
 youkassa_secret_key = os.getenv("YOUKASSA_SECRET_KEY")
 
@@ -60,7 +62,6 @@ def process_payment(request):
     if request.method == 'POST':
         data = json.loads(request.body)
         order_id = data['order_id']
-        place_locked_time = data['place_locked_time']
         iframe_url = data['iframe_url']
         query_id = data['query_id']  # Получаем query_id
 
@@ -68,7 +69,7 @@ def process_payment(request):
             # Выполняем логику платежа и заказа
             with sqlite3.connect(db_path, timeout=15000) as data:
                 curs = data.cursor()
-                order = curs.execute("""SELECT payment_id, payment_link, user_id, price, row, place FROM orders WHERE place_locked_time = ?""", (place_locked_time,)).fetchone()
+                order = curs.execute("""SELECT payment_id, payment_link, user_id, price, row, place FROM orders WHERE order_id = ?""", (order_id,)).fetchone()
                 if order is None:
                     return JsonResponse({"status": "error", "message": "Order not found"}, status=404)
                 payment_link = order[1]
@@ -143,7 +144,7 @@ def kino(request, performance_id):
                 # logger.info(request.POST)
                 user_id = request.POST['user_id']
 
-                state, price, place_place, place_row, place_id, place_locked_time = request.POST['chair_but'].split(',')
+                state, price, place_place, place_row, place_id, order_id = request.POST['chair_but'].split(',')
 
                 if state == 'back':  # если нажал назад, разблокируем все его места
                     unblock_all(user_id, performance_id, 'all')
@@ -152,10 +153,10 @@ def kino(request, performance_id):
                     return render(request, 'index.html',
                                   {'form': form, 'seatMap': seatMap, 'down_text': 'Веберите 1 место', 'is_new_data': True})
                 elif state == 'pay':  # если нажал оплатить
-                    ret = payment_button_pressed(request, user_id, performance_id, place_id, price, place_locked_time)
+                    ret = payment_button_pressed(request, user_id, performance_id, place_id, price, order_id)
                     return ret
                 elif state == 'choose_place':  # если выбрал место
-                    ret = cheir_choosed(request, performance_id, form)
+                    ret = cheir_choosed(request, user_id, performance_id, place_id, price, order_id, form)
                     return ret
         else:  # при первом обращении
             seatMap = create_list_of_buttons(performance_id)
@@ -172,12 +173,12 @@ def unblock_all(user_id, performance_id, place_id):
         if place_id == 'all':
             # берем все брони у пользователя на этот сеанс
             orders_to_close = curs.execute(
-                """SELECT performance_id, place_id, buyer_id FROM orders WHERE user_id == ? AND performance_id == ? AND status == 2;""",
+                """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id == ? AND performance_id == ? AND status == 2;""",
                 (user_id, performance_id)).fetchall()
         else:
             # берем все брони кроме place_id который нам передали
             orders_to_close = curs.execute(
-                """SELECT performance_id, place_id, buyer_id FROM orders WHERE user_id == ? AND performance_id == ? AND status == 2 AND place_id IS NOT ?;""",
+                """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id == ? AND performance_id == ? AND status == 2 AND place_id IS NOT ?;""",
                 (user_id, performance_id, place_id)).fetchall()
 
         # print('11111111', orders_to_close)
@@ -185,19 +186,27 @@ def unblock_all(user_id, performance_id, place_id):
         for order in orders_to_close:
             # print(order)
             params = {
-                "sp": "WgA_UnlockPlace",
-                "IdPerformance": order[0],
-                "IdPlace": order[1],
-                "IdClient": 2024,
-                "df": "J"}
-            response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params)
+                "sp": "WgA_SetOrderToNull",
+                "idOrder": order[3],
+                "df": "J",
+            }
+            for i in range(5):
+                try:
+                    response = requests.request("GET", url_kino_baza, params=params)
+                    logger.info(decode_unicode(response.text))
+                    break
+                except Exception as e:
+                    bot.send_message(5254091301,
+                                     f'!!!!Ошибка. Заказ unblock_all, но отменить не вышло {e}')
+                    logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
+                    time.sleep(7)
 
             curs.execute(
                 """UPDATE orders SET status == 0 WHERE performance_id == ? AND place_id == ? AND buyer_id == ? AND user_id == ?""",
                 (order[0], order[1], order[2], user_id))
 
 
-def payment_button_pressed(request, user_id, performance_id, place_id, price, place_locked_time):
+def payment_button_pressed(request, user_id, performance_id, place_id, price, order_id):
     with sqlite3.connect(db_path, timeout=15000) as data:
         curs = data.cursor()
         try:
@@ -206,21 +215,21 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price, pl
             buyer_id = 998277
 
         did_he_almoust_bye = curs.execute(
-            """SELECT row, place, price, order_id FROM orders WHERE place_locked_time == ? AND  user_id == ? AND status == 1;""",
-            (place_locked_time, user_id)).fetchone()
+            """SELECT row, place, price, order_id FROM orders WHERE order_id == ? AND  user_id == ? AND status == 1;""",
+            (order_id, user_id)).fetchone()
 
-    unblock_all(user_id, performance_id, "all")  # если у пользователя были другие брони, снимаем их, чтобы не дать ему купить 2 билета
+    # unblock_all(user_id, performance_id, "all")  # если у пользователя были другие брони, снимаем их, чтобы не дать ему купить 2 билета
 
-    params = {
-        "sp": "WgA_LockPlace",
-        "IdPerformance": performance_id,
-        "IdPlace": int(place_id),
-        "IdClient": 2024,
-        "IdPriceCategory": 17198,
-        "df": "J"
-    }
-
-    response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params)
+    # params = {
+    #     "sp": "WgA_LockPlace",
+    #     "IdPerformance": performance_id,
+    #     "IdPlace": int(place_id),
+    #     "IdClient": 2024,
+    #     "IdPriceCategory": 17198,
+    #     "df": "J"
+    # }
+    #
+    # response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params)
 
     if did_he_almoust_bye != None:  # если уже успешно купил билет на сеанс
         import telebot
@@ -229,26 +238,26 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price, pl
         return render(request, 'finish.html')
 
     # регистрируем заказ
-    params = {
-        "sp": "WgA_CreateMultyOrder",
-        "IdClient": 2024,
-        "df": "J"}
+    # params = {
+    #     "sp": "WgA_CreateMultyOrder",
+    #     "IdClient": 2024,
+    #     "df": "J"}
+    #
+    # response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params)
+    # order_data = response.json()
 
-    response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params)
-    order_data = response.json()
+    # if isinstance(order_data, dict):
+    #     if order_data.get('Error') is not None:
+    #         bot.send_message(user_id,
+    #                          f'''Какая-то ошибка, попробуйте позже.\n{order_data.get('Error')}''')
+    #         unblock_all(user_id, performance_id, "all")
+    #         return render(request, 'finish.html')
 
-    if isinstance(order_data, dict):
-        if order_data.get('Error') is not None:
-            bot.send_message(user_id,
-                             f'''Какая-то ошибка, попробуйте позже.\n{order_data.get('Error')}''')
-            unblock_all(user_id, performance_id, "all")
-            return render(request, 'finish.html')
-
-    try:
-        order_id = order_data['IdOrder']
-    except TypeError:
-        unblock_all(user_id, performance_id, "all")
-        return render(request, 'finish.html')
+    # try:
+    #     order_id = order_data['IdOrder']
+    # except TypeError:
+    #     unblock_all(user_id, performance_id, "all")
+    #     return render(request, 'finish.html')
 
     Configuration.account_id = int(youkassa_shop_id)
     Configuration.secret_key = youkassa_secret_key
@@ -273,13 +282,13 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price, pl
     with sqlite3.connect(db_path, timeout=15000) as dataf:
         curs = dataf.cursor()
         curs.execute(
-            """UPDATE orders SET status = 3, order_id = ?, payment_id = ?, payment_link = ? WHERE place_locked_time == ? AND  user_id == ?""",
-            (order_id, payment_id, payment_link, place_locked_time, user_id))
+            """UPDATE orders SET status = 3, order_id = ?, payment_id = ?, payment_link = ? WHERE order_id == ? AND  user_id == ?""",
+            (order_id, payment_id, payment_link, order_id, user_id))
 
-    return render(request, 'payment.html', {'iframe_url': payment_link, 'close_webapp': True, 'order_id': order_id, 'place_locked_time': place_locked_time})
+    return render(request, 'payment.html', {'iframe_url': payment_link, 'close_webapp': True, 'order_id': order_id})
 
 
-def cheir_choosed(request, performance_id, form):
+def cheir_choosed(request, user_id, performance_id, place_id, price, place_locked_time, form):
     # print(request.POST['chair_but'], request.POST['user_id'], request.POST)
     state, price, place_place, place_row, place_id, place_locked_time = request.POST['chair_but'].split(',')
     user_id = request.POST['user_id']
@@ -303,7 +312,6 @@ def cheir_choosed(request, performance_id, form):
     }
 
     response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params)
-    # logger.info(decode_unicode(response.text))
     locked_place = response.json()
     # print(locked_place)
     # записываем в базу как заказ со статусом 1
@@ -317,15 +325,38 @@ def cheir_choosed(request, performance_id, form):
         if locked_place['Price']:  # если место свободно
             # print(locked_place, 'open')
             price = locked_place['Price']
+
+            # регистрируем заказ
+            params = {
+                "sp": "WgA_CreateMultyOrder",
+                "IdClient": 2024,
+                "df": "J"}
+
+            response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params)
+            order_data = response.json()
+
+            if isinstance(order_data, dict):
+                if order_data.get('Error') is not None:
+                    bot.send_message(user_id,
+                                     f'''Какая-то ошибка, попробуйте позже.\n{order_data.get('Error')}''')
+                    unblock_all(user_id, performance_id, "all")
+                    return render(request, 'finish.html')
+
+            try:
+                order_id = order_data['IdOrder']
+            except TypeError:
+                unblock_all(user_id, performance_id, "all")
+                return render(request, 'finish.html')
+
             with sqlite3.connect(db_path, timeout=15000) as data:
                 curs = data.cursor()
                 curs.execute(
-                    """UPDATE orders SET price == ? WHERE performance_id == ? AND place_id == ? AND buyer_id == ? AND user_id == ?""",
-                    (price, performance_id, place_id, buyer_id, user_id))
+                    """UPDATE orders SET price == ?, order_id == ? WHERE performance_id == ? AND place_id == ? AND buyer_id == ? AND user_id == ? AND status == 2;""",
+                    (price, order_id, performance_id, place_id, buyer_id, user_id))
             seatMap = create_list_of_buttons(performance_id)
             return render(request, 'when_place_choosed.html',
-                          {'form': form, 'back_value': f'back,{price},{place_place},{place_row},{place_id},{place_locked_time}',
-                           'button_value': f'pay,{price},{place_place},{place_row},{place_id},{place_locked_time}',
+                          {'form': form, 'back_value': f'back,{price},{place_place},{place_row},{place_id},{order_id}',
+                           'button_value': f'pay,{price},{place_place},{place_row},{place_id},{order_id}',
                            'text': f'Ряд {place_row}\nМесто {place_place}\n\nЦена {price}'})
     except KeyError as ex:  # если место заблокировано уже
         logger.info(f"KeyError: lock {ex}")
