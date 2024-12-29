@@ -520,8 +520,9 @@ def check_payment_status(payment_id, report=True):
 
         elif payment_status == 'canceled':
             params = {
-                "sp": "WgA_SetOrderToNull",
-                "idOrder": order_id,
+                # TODO
+                "sp": "RRWgA_SetOrderToNull",
+                "IdOrder": order_id,
                 "df": "J",
             }
             for i in range(5):
@@ -529,6 +530,7 @@ def check_payment_status(payment_id, report=True):
                     response = requests.request("GET", url_kino_baza, params=params)
                     break
                 except Exception as e:
+                    logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
                     time.sleep(7)
             with sqlite3.connect(db_path, timeout=15000) as data:
                 curs = data.cursor()
