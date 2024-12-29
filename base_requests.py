@@ -443,7 +443,7 @@ def send_xml_to_ekinobilet(
 
         xml_data = ET.tostring(root, encoding='utf-8')
         xml_file_name = os.path.join(root_path, "xml_files", f'ekb_{fond_kino_id}_{doc_date}145.xml')
-        logger.info(xml_file_name)
+        # logger.info(xml_file_name)
         with open(xml_file_name, 'wb') as file:
             # Записываем XML-данные в файл
             file.write(xml_data)
