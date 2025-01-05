@@ -4,6 +4,8 @@ from config import db_path
 
 with sqlite3.connect(db_path, timeout=15000) as data:
     curs = data.cursor()
+    curs.execute("""PRAGMA journal_mode=WAL""")
+
     curs.execute("""CREATE TABLE IF NOT EXISTS users(
     		user_id INTEGER NOT NULL PRIMARY KEY,
 			city TEXT,
