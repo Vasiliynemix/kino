@@ -83,19 +83,19 @@ with psycopg2.connect(db_path) as pg_conn:
         );
         """)
 
-        pg_cursor.execute("""
-            -- 1. Добавляем новую колонку с типом TEXT
-            ALTER TABLE performance ADD COLUMN date_date TEXT;
-            ALTER TABLE performance ADD COLUMN time_date TEXT;
-
-            -- 3. Удаляем старую колонку
-            ALTER TABLE performance DROP COLUMN date;
-            ALTER TABLE performance DROP COLUMN time;
-
-            -- 4. Переименовываем новую колонку в имя старой
-            ALTER TABLE performance RENAME COLUMN date_date TO date;
-            ALTER TABLE performance RENAME COLUMN time_date TO time;
-        """)
+        # pg_cursor.execute("""
+        #     -- 1. Добавляем новую колонку с типом TEXT
+        #     ALTER TABLE performance ADD COLUMN date_date TEXT;
+        #     ALTER TABLE performance ADD COLUMN time_date TEXT;
+        #
+        #     -- 3. Удаляем старую колонку
+        #     ALTER TABLE performance DROP COLUMN date;
+        #     ALTER TABLE performance DROP COLUMN time;
+        #
+        #     -- 4. Переименовываем новую колонку в имя старой
+        #     ALTER TABLE performance RENAME COLUMN date_date TO date;
+        #     ALTER TABLE performance RENAME COLUMN time_date TO time;
+        # """)
 
         pg_cursor.execute("""
         CREATE TABLE IF NOT EXISTS cinemas (
@@ -107,95 +107,24 @@ with psycopg2.connect(db_path) as pg_conn:
         );
         """)
 
-        # # Перенос данных из SQLite в PostgreSQL
-        # def transfer_table(sqlite_query, pg_insert_query, params=None):
-        #     sqlite_cursor.execute(sqlite_query, params or ())
-        #     rows = sqlite_cursor.fetchall()
-        #     for row in rows:
-        #         # Преобразование данных перед вставкой
-        #         transformed_row = []
-        #         for value in row:
-        #             # Преобразование пустых строк или NULL значений
-        #             if value == "":  # пустая строка
-        #                 transformed_row.append(None)
-        #             elif value == " ":
-        #                 transformed_row.append(None)
-        #             elif isinstance(value, str) and len(value) == 10 and value.count('-') == 2:
-        #                 # Преобразование даты в формат TIMESTAMP
-        #                 transformed_row.append(f"{value} 00:00:00")  # Добавляем время, если только дата
-        #             elif isinstance(value, str) and ":" in value and len(value) == 5:
-        #                 # Преобразование времени в формат TIMESTAMP
-        #                 transformed_row.append(f"{datetime.now().date()} {value}:00")
-        #             else:
-        #                 transformed_row.append(value)
-        #         pg_cursor.execute(pg_insert_query, tuple(transformed_row))
-        #
-        # # Перенос данных из таблицы users
-        # transfer_table(
-        #     "SELECT user_id, city, buyer_id FROM users",
-        #     """
-        #     INSERT INTO users (user_id, city, buyer_id)
-        #     VALUES (%s, %s, %s)
-        #     ON CONFLICT (user_id) DO NOTHING;
-        #     """
-        # )
-        #
-        # # Перенос данных из таблицы orders
-        # transfer_table(
-        #     """
-        #     SELECT order_id, user_id, buyer_id, performance_id, place_id, price,
-        #            payment_id, payment_link, place_locked_time, status,
-        #            kino_add_payment_id, row, place, report_sented
-        #     FROM orders
-        #     """,
-        #     """
-        #     INSERT INTO orders (order_id, user_id, buyer_id, performance_id, place_id, price,
-        #                         payment_id, payment_link, place_locked_time, status,
-        #                         kino_add_payment_id, row, place, report_sented)
-        #     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        #     ON CONFLICT (order_id) DO NOTHING;
-        #     """
-        # )
-        #
-        # # Перенос данных из таблицы show
-        # transfer_table(
-        #     """
-        #     SELECT show_id, name, kinopoisk_id, duration, description, poster,
-        #            kp_rating, pushkin_card, pu_number, id_procult
-        #     FROM show
-        #     """,
-        #     """
-        #     INSERT INTO show (show_id, name, kinopoisk_id, duration, description, poster,
-        #                       kp_rating, pushkin_card, pu_number, id_procult)
-        #     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        #     ON CONFLICT (show_id) DO NOTHING;
-        #     """
-        # )
-        #
-        # # Перенос данных из таблицы performance
-        # transfer_table(
-        #     """
-        #     SELECT performance_id, show_id, building_id, hallname, date, time,
-        #            minprice, maxprice, freeplaces, building_name, hall_id
-        #     FROM performance
-        #     """,
-        #     """
-        #     INSERT INTO performance (performance_id, show_id, building_id, hallname, date, time,
-        #                              minprice, maxprice, freeplaces, building_name, hall_id)
-        #     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        #     ON CONFLICT (performance_id) DO NOTHING;
-        #     """
-        # )
-        #
-        # # Перенос данных из таблицы cinemas
-        # transfer_table(
-        #     "SELECT building_id, name, city, address, fond_kino_id FROM cinemas",
-        #     """
-        #     INSERT INTO cinemas (building_id, name, city, address, fond_kino_id)
-        #     VALUES (%s, %s, %s, %s, %s)
-        #     ON CONFLICT (building_id) DO NOTHING;
-        #     """
-        # )
+        pg_cursor.execute(
+            """INSERT INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (2515, 'Орион', 'Бердск', 'г. Бердск, ул. Островского, 69', 1629) ON CONFLICT (building_id) DO NOTHING;""")
+        pg_cursor.execute(
+            """INSERT INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (3522, 'Планета кино', 'Бийск', 'г. Бийск, ул. Советская, 205/2', 1626) ON CONFLICT (building_id) DO NOTHING;""")
+        # curs.execute("""INSERT OR IGNORE INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (9054, 'Голден синема', 'Новосибирск', 'г. Новосибирск ул.Курчатова 1');""")
+        pg_cursor.execute(
+            """INSERT INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (5041, 'Планета кино', 'Горно-Алтайск', 'г. Горно-Алтайск, пр. Коммунистический, 11', 1627) ON CONFLICT (building_id) DO NOTHING;""")
+        pg_cursor.execute(
+            """INSERT INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (1009, 'Россия', 'Искитим', 'г. Искитим, пр. Юбилейный, 15', 1628) ON CONFLICT (building_id) DO NOTHING;""")
+        pg_cursor.execute("""DELETE FROM cinemas WHERE city = 'Кемерово';""")
+        # curs.execute("""INSERT OR IGNORE INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (508, 'Променад 2', 'Кемерово', 'г. Кемерово, пр. Химиков, 39', 1625);""")
+        # curs.execute("""INSERT OR IGNORE INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (6544, 'Променад 3', 'Кемерово', 'г. Кемерово, пр. Ленина, 59а', 1529);""")
+        # curs.execute("""INSERT OR IGNORE INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (9053, 'МКП ККК им. В.В. Маяковского', 'Новосибирск', 'г. Новосибирск, красный проспект 17');""")
+        pg_cursor.execute(
+            """INSERT INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (1511, 'Аврора', 'Новосибирск', 'г. Новосибирск, пр. Карла Маркса, 49', 1632) ON CONFLICT (building_id) DO NOTHING;""")
+        pg_cursor.execute(
+            """INSERT INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (3516, 'Горизонт', 'Новосибирск', 'г. Новосибирск, ул. Бориса Богаткова, 266', 1633) ON CONFLICT (building_id) DO NOTHING;""")
+        # curs.execute("""INSERT OR IGNORE INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (4540, 'Седьмое Небо', 'Новосибирск', 'г. Новосибирск, ул. Дуси Ковальчук, 179/4');""")
 
 # Закрытие соединений
 sqlite_conn.close()
