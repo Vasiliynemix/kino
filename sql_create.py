@@ -52,6 +52,21 @@ with psycopg2.connect(db_path) as pg_conn:
             id_procult BIGINT
         );
         """)
+        pg_cursor.execute("""DROP TABLE IF EXISTS show;""")
+        pg_cursor.execute("""
+        CREATE TABLE IF NOT EXISTS show (
+            show_id BIGINT PRIMARY KEY,
+            name TEXT,
+            kinopoisk_id BIGINT,
+            duration TEXT,
+            description TEXT,
+            poster TEXT,
+            kp_rating INTEGER,
+            pushkin_card INTEGER DEFAULT 0,
+            pu_number BIGINT,
+            id_procult BIGINT
+        );
+        """)
 
         pg_cursor.execute("""
         CREATE TABLE IF NOT EXISTS performance (
