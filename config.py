@@ -34,7 +34,7 @@ if IS_PROD == "True":
     url = os.getenv('URL')
     url_server = os.getenv('URL')
 else:
-    url = "https://factual-warthog-witty.ngrok-free.app"
+    url = "https://1cnhyf-37-78-194-77.ru.tuna.am"
     url_server = "https://verified-greatly-bonefish.ngrok-free.app"
     BOT_TOKEN = os.getenv('BOT_TOKEN_TEST')  # https://t.me/test_2_func_bot
 
