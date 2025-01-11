@@ -79,95 +79,95 @@ with psycopg2.connect(db_path) as pg_conn:
         );
         """)
 
-        # Перенос данных из SQLite в PostgreSQL
-        def transfer_table(sqlite_query, pg_insert_query, params=None):
-            sqlite_cursor.execute(sqlite_query, params or ())
-            rows = sqlite_cursor.fetchall()
-            for row in rows:
-                # Преобразование данных перед вставкой
-                transformed_row = []
-                for value in row:
-                    # Преобразование пустых строк или NULL значений
-                    if value == "":  # пустая строка
-                        transformed_row.append(None)
-                    elif value == " ":
-                        transformed_row.append(None)
-                    elif isinstance(value, str) and len(value) == 10 and value.count('-') == 2:
-                        # Преобразование даты в формат TIMESTAMP
-                        transformed_row.append(f"{value} 00:00:00")  # Добавляем время, если только дата
-                    elif isinstance(value, str) and ":" in value and len(value) == 5:
-                        # Преобразование времени в формат TIMESTAMP
-                        transformed_row.append(f"{datetime.now().date()} {value}:00")
-                    else:
-                        transformed_row.append(value)
-                pg_cursor.execute(pg_insert_query, tuple(transformed_row))
-
-        # Перенос данных из таблицы users
-        transfer_table(
-            "SELECT user_id, city, buyer_id FROM users",
-            """
-            INSERT INTO users (user_id, city, buyer_id)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (user_id) DO NOTHING;
-            """
-        )
-
-        # Перенос данных из таблицы orders
-        transfer_table(
-            """
-            SELECT order_id, user_id, buyer_id, performance_id, place_id, price,
-                   payment_id, payment_link, place_locked_time, status,
-                   kino_add_payment_id, row, place, report_sented
-            FROM orders
-            """,
-            """
-            INSERT INTO orders (order_id, user_id, buyer_id, performance_id, place_id, price,
-                                payment_id, payment_link, place_locked_time, status,
-                                kino_add_payment_id, row, place, report_sented)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (order_id) DO NOTHING;
-            """
-        )
-
-        # Перенос данных из таблицы show
-        transfer_table(
-            """
-            SELECT show_id, name, kinopoisk_id, duration, description, poster,
-                   kp_rating, pushkin_card, pu_number, id_procult
-            FROM show
-            """,
-            """
-            INSERT INTO show (show_id, name, kinopoisk_id, duration, description, poster,
-                              kp_rating, pushkin_card, pu_number, id_procult)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (show_id) DO NOTHING;
-            """
-        )
-
-        # Перенос данных из таблицы performance
-        transfer_table(
-            """
-            SELECT performance_id, show_id, building_id, hallname, date, time,
-                   minprice, maxprice, freeplaces, building_name, hall_id
-            FROM performance
-            """,
-            """
-            INSERT INTO performance (performance_id, show_id, building_id, hallname, date, time,
-                                     minprice, maxprice, freeplaces, building_name, hall_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (performance_id) DO NOTHING;
-            """
-        )
-
-        # Перенос данных из таблицы cinemas
-        transfer_table(
-            "SELECT building_id, name, city, address, fond_kino_id FROM cinemas",
-            """
-            INSERT INTO cinemas (building_id, name, city, address, fond_kino_id)
-            VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT (building_id) DO NOTHING;
-            """
-        )
+        # # Перенос данных из SQLite в PostgreSQL
+        # def transfer_table(sqlite_query, pg_insert_query, params=None):
+        #     sqlite_cursor.execute(sqlite_query, params or ())
+        #     rows = sqlite_cursor.fetchall()
+        #     for row in rows:
+        #         # Преобразование данных перед вставкой
+        #         transformed_row = []
+        #         for value in row:
+        #             # Преобразование пустых строк или NULL значений
+        #             if value == "":  # пустая строка
+        #                 transformed_row.append(None)
+        #             elif value == " ":
+        #                 transformed_row.append(None)
+        #             elif isinstance(value, str) and len(value) == 10 and value.count('-') == 2:
+        #                 # Преобразование даты в формат TIMESTAMP
+        #                 transformed_row.append(f"{value} 00:00:00")  # Добавляем время, если только дата
+        #             elif isinstance(value, str) and ":" in value and len(value) == 5:
+        #                 # Преобразование времени в формат TIMESTAMP
+        #                 transformed_row.append(f"{datetime.now().date()} {value}:00")
+        #             else:
+        #                 transformed_row.append(value)
+        #         pg_cursor.execute(pg_insert_query, tuple(transformed_row))
+        #
+        # # Перенос данных из таблицы users
+        # transfer_table(
+        #     "SELECT user_id, city, buyer_id FROM users",
+        #     """
+        #     INSERT INTO users (user_id, city, buyer_id)
+        #     VALUES (%s, %s, %s)
+        #     ON CONFLICT (user_id) DO NOTHING;
+        #     """
+        # )
+        #
+        # # Перенос данных из таблицы orders
+        # transfer_table(
+        #     """
+        #     SELECT order_id, user_id, buyer_id, performance_id, place_id, price,
+        #            payment_id, payment_link, place_locked_time, status,
+        #            kino_add_payment_id, row, place, report_sented
+        #     FROM orders
+        #     """,
+        #     """
+        #     INSERT INTO orders (order_id, user_id, buyer_id, performance_id, place_id, price,
+        #                         payment_id, payment_link, place_locked_time, status,
+        #                         kino_add_payment_id, row, place, report_sented)
+        #     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        #     ON CONFLICT (order_id) DO NOTHING;
+        #     """
+        # )
+        #
+        # # Перенос данных из таблицы show
+        # transfer_table(
+        #     """
+        #     SELECT show_id, name, kinopoisk_id, duration, description, poster,
+        #            kp_rating, pushkin_card, pu_number, id_procult
+        #     FROM show
+        #     """,
+        #     """
+        #     INSERT INTO show (show_id, name, kinopoisk_id, duration, description, poster,
+        #                       kp_rating, pushkin_card, pu_number, id_procult)
+        #     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        #     ON CONFLICT (show_id) DO NOTHING;
+        #     """
+        # )
+        #
+        # # Перенос данных из таблицы performance
+        # transfer_table(
+        #     """
+        #     SELECT performance_id, show_id, building_id, hallname, date, time,
+        #            minprice, maxprice, freeplaces, building_name, hall_id
+        #     FROM performance
+        #     """,
+        #     """
+        #     INSERT INTO performance (performance_id, show_id, building_id, hallname, date, time,
+        #                              minprice, maxprice, freeplaces, building_name, hall_id)
+        #     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        #     ON CONFLICT (performance_id) DO NOTHING;
+        #     """
+        # )
+        #
+        # # Перенос данных из таблицы cinemas
+        # transfer_table(
+        #     "SELECT building_id, name, city, address, fond_kino_id FROM cinemas",
+        #     """
+        #     INSERT INTO cinemas (building_id, name, city, address, fond_kino_id)
+        #     VALUES (%s, %s, %s, %s, %s)
+        #     ON CONFLICT (building_id) DO NOTHING;
+        #     """
+        # )
 
 # Закрытие соединений
 sqlite_conn.close()
