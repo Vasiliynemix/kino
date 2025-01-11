@@ -39,6 +39,12 @@ with psycopg2.connect(db_path) as pg_conn:
         """)
 
         pg_cursor.execute("""
+        ALTER TABLE orders DROP CONSTRAINT orders_pkey;
+        CREATE UNIQUE INDEX order_id_unique ON orders(order_id);
+        ALTER TABLE orders ALTER COLUMN order_id DROP NOT NULL;
+        """)
+
+        pg_cursor.execute("""
         CREATE TABLE IF NOT EXISTS show (
             show_id BIGINT PRIMARY KEY,
             name TEXT,
