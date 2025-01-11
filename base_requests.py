@@ -291,7 +291,7 @@ def all_performances_request():
                             # отсеиваем все, что прошло более 14 минут назад
                             # print(data_performance)
                             curs.execute(
-                                """INSERT OR IGNORE INTO performance (performance_id, show_id, building_id, hallname, date, time, minprice, maxprice, freeplaces, building_name, hall_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);""",
+                                """INSERT INTO performance (performance_id, show_id, building_id, hallname, date, time, minprice, maxprice, freeplaces, building_name, hall_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (performance_id) DO NOTHING;""",
                                 (data_performance['IdPerformance'], data_performance['IdShow'],
                                  data_performance['IdBuilding'], data_performance['HallName'], date_str, time_str,
                                  data_performance['MinPrice'], data_performance['MaxPrice'], data_performance['FreePlace'],
@@ -324,10 +324,10 @@ def user_reg(user_id):  # проверяем зареган ли пользов�
                 response = requests.request("GET", url_kino_baza, params=params)
                 try:
                     buyer = response.json()
-                    curs.execute("""INSERT OR IGNORE INTO users (user_id, buyer_id) VALUES ($1, $2);""",
+                    curs.execute("""INSERT INTO users (user_id, buyer_id) VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING;""",
                                  (user_id, buyer['IdClient']))
                 except Exception:
-                    curs.execute("""INSERT OR IGNORE INTO users (user_id, buyer_id) VALUES ($1, $2);""", (user_id, 998277))
+                    curs.execute("""INSERT INTO users (user_id, buyer_id) VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING;""", (user_id, 998277))
 
     return
 
