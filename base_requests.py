@@ -219,7 +219,7 @@ def get_kinopoisk_info():
         with psycopg2.connect(db_path) as data:
             with data.cursor() as curs:
                 curs.execute(
-                    """SELECT kinopoisk_id FROM show WHERE kinopoisk_id IS NOT NULL AND kinopoisk_id != ' ' AND (poster IS NULL OR poster = '');""")
+                    """SELECT kinopoisk_id FROM show WHERE kinopoisk_id IS NOT NULL AND (poster IS NULL OR poster = '');""")
                 shows = curs.fetchall()
                 # print(shows)
                 for show in shows:
