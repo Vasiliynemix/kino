@@ -60,6 +60,7 @@ def send_dates(callback):
     tomorrow = today + datetime.timedelta(days=1)
 
     formatted_dates = []
+    date_list = [d.strftime('%Y-%m-%d') if isinstance(d, datetime.date) else d for d in date_list]
     for date_str in date_list:
         date = datetime.datetime.strptime(date_str, '%Y-%m-%d').date()
         if date == today:
