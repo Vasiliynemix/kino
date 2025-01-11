@@ -84,8 +84,17 @@ with psycopg2.connect(db_path) as pg_conn:
         """)
 
         pg_cursor.execute("""
-        ALTER TABLE performance ALTER COLUMN date TYPE DATE USING date::DATE;
-        ALTER TABLE performance ALTER COLUMN time TYPE DATE USING time::DATE;
+            -- 1. Добавляем новую колонку с типом TEXT
+            ALTER TABLE performance ADD COLUMN date_date DATE;
+            ALTER TABLE performance ADD COLUMN time_date DATE;
+
+            -- 3. Удаляем старую колонку
+            ALTER TABLE performance DROP COLUMN date;
+            ALTER TABLE performance DROP COLUMN time;
+
+            -- 4. Переименовываем новую колонку в имя старой
+            ALTER TABLE performance RENAME COLUMN date_date TO date;
+            ALTER TABLE performance RENAME COLUMN time_date TO time;
         """)
 
         pg_cursor.execute("""
