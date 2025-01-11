@@ -83,16 +83,16 @@ with psycopg2.connect(db_path) as pg_conn:
         );
         """)
 
-        pg_cursor.execute("""
-            -- 1. Добавляем новую колонку с типом TEXT
-            ALTER TABLE performance ADD COLUMN date_date INTEGER;
-
-            -- 3. Удаляем старую колонку
-            ALTER TABLE performance DROP COLUMN freeplaces;
-
-            -- 4. Переименовываем новую колонку в имя старой
-            ALTER TABLE performance RENAME COLUMN date_date TO freeplaces;
-        """)
+        # pg_cursor.execute("""
+        #     -- 1. Добавляем новую колонку с типом TEXT
+        #     ALTER TABLE performance ADD COLUMN date_date INTEGER;
+        #
+        #     -- 3. Удаляем старую колонку
+        #     ALTER TABLE performance DROP COLUMN freeplaces;
+        #
+        #     -- 4. Переименовываем новую колонку в имя старой
+        #     ALTER TABLE performance RENAME COLUMN date_date TO freeplaces;
+        # """)
 
         pg_cursor.execute("""
         CREATE TABLE IF NOT EXISTS cinemas (

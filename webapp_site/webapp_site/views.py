@@ -45,7 +45,7 @@ pochta_bank_token = os.getenv('POCHTA_BANK_TOKEN')
 
 root_path = str(Path(__file__).parent.parent.parent)
 path_to_log = os.path.join(Path(__file__).parent.parent, "logs", "info.log")
-db_path = os.path.join(Path(__file__).parent.parent.parent, "kino.db")
+db_path = os.getenv("POSTGRES_DB_URL")
 sber_login = os.getenv("SBER_LOGIN")
 sber_password = os.getenv("SBER_PASSWORD")
 
