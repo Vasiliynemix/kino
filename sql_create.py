@@ -84,6 +84,11 @@ with psycopg2.connect(db_path) as pg_conn:
         """)
 
         pg_cursor.execute("""
+        ALTER TABLE performance ALTER COLUMN date TYPE DATE USING date::DATE;
+        ALTER TABLE performance ALTER COLUMN time TYPE DATE USING time::DATE;
+        """)
+
+        pg_cursor.execute("""
         CREATE TABLE IF NOT EXISTS cinemas (
             building_id BIGINT PRIMARY KEY,
             name TEXT,
