@@ -85,8 +85,8 @@ with psycopg2.connect(db_path) as pg_conn:
 
         pg_cursor.execute("""
             -- 1. Добавляем новую колонку с типом TEXT
-            ALTER TABLE performance ADD COLUMN date_date DATE;
-            ALTER TABLE performance ADD COLUMN time_date DATE;
+            ALTER TABLE performance ADD COLUMN date_date TIMESTAMP;
+            ALTER TABLE performance ADD COLUMN time_date TIMESTAMP;
 
             -- 3. Удаляем старую колонку
             ALTER TABLE performance DROP COLUMN date;
