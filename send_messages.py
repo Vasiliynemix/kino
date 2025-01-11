@@ -113,17 +113,29 @@ def send_movies(callback, date):
                 today_time = today.time().strftime('%H:%M')
                 today_date = today.date().strftime('%Y-%m-%d')
                 for show in accepted_shows:
-                    # мы запрашиваем те сеансы которые проходят в одном из кинотеатров нужного нам города и относятся к нужному нам фильму если есть свободные места и это не зал детская площадка. Выдаем сначала по залу, потом по времени
+                    query = """
+                        SELECT * FROM performance 
+                        WHERE building_id = ANY(%s) 
+                          AND show_id = %s 
+                          AND date = %s 
+                          AND freeplaces != 0 
+                          AND hall_id != 15 
+                          {time_filter} 
+                        ORDER BY hallname, time ASC
+                    """
+
+                    params = [cinemas_list, show[0], date]
+
+                    # Добавляем фильтр времени, если это сегодняшняя дата
                     if today_date == date:
-                        curs.execute(
-                            f"SELECT * FROM performance WHERE building_id IN ({','.join('%s' * len(cinemas_list))}) AND show_id = %s AND date = %s AND freeplaces != 0 AND hall_id != 15 AND %s <= time ORDER BY hallname, time ASC",
-                            cinemas_list + [show[0]] + [date] + [today_time])
-                        performances = curs.fetchall()
+                        time_filter = "AND %s <= time"
+                        params.append(today_time)
                     else:
-                        curs.execute(
-                            f"SELECT * FROM performance WHERE building_id IN ({','.join('%s' * len(cinemas_list))}) AND show_id = %s AND date = %s AND freeplaces != 0 AND hall_id != 15 ORDER BY hallname, time ASC",
-                            cinemas_list + [show[0]] + [date])
-                        performances = curs.fetchall()
+                        time_filter = ""
+
+                    query = query.format(time_filter=time_filter)
+                    curs.execute(query, params)
+                    performances = curs.fetchall()
 
                     if performances == []:
                         continue
