@@ -188,7 +188,7 @@ def unblock_all(user_id, performance_id, place_id):
             # print('11111111', orders_to_close)
             # проходимся по всем таким броням
             for order in orders_to_close:
-                # print(order)
+                logger.info(order)
                 params = {
                     "sp": "WgA_SetOrderToNull",
                     "idOrder": order[3],
@@ -211,7 +211,7 @@ def unblock_all(user_id, performance_id, place_id):
                         (order[0], order[1], order[2], user_id))
                 except Exception as e:
                     bot.send_message(5254091301,
-                                     f'!!!!Ошибка. Заказ unblock_all, но отменить не вышло {e}')
+                                     f'!!!!Ошибка UPDATE orders SET status. Заказ unblock_all, но отменить не вышло {e}')
 
 
 def payment_button_pressed(request, user_id, performance_id, place_id, price, order_id):
