@@ -128,8 +128,11 @@ def get_show_info():
                     if response.status_code == 200:
                         data_show = response.json()
                         # print(data_show, '\n')
+                        kinopoisk_id = data_show['Remark']
+                        if kinopoisk_id == " ":
+                            kinopoisk_id = None
                         curs.execute("""UPDATE show SET kinopoisk_id = %s WHERE show_id = %s""",
-                                     (data_show['Remark'], show_id))
+                                     (kinopoisk_id, show_id))
                     else:
                         pass
                         # bot.send_message(5254091301, f'Ошибка по запросу Wga_GetShowInfo\nВ ответ на запрос возвращается код {response.status_code}')
