@@ -207,7 +207,7 @@ def unblock_all(user_id, performance_id, place_id):
 
                 try:
                     curs.execute(
-                        """UPDATE orders SET status = 3 WHERE performance_id = %s AND place_id = %s AND buyer_id = %s AND user_id = %s""",
+                        """UPDATE orders SET status = 2 WHERE performance_id = %s AND place_id = %s AND buyer_id = %s AND user_id = %s""",
                         (order[0], order[1], order[2], user_id))
                 except Exception as e:
                     bot.send_message(5254091301,
