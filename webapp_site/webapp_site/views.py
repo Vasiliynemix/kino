@@ -205,9 +205,13 @@ def unblock_all(user_id, performance_id, place_id):
                         logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
                         time.sleep(7)
 
-                curs.execute(
-                    """UPDATE orders SET status = %s WHERE performance_id = %s AND place_id = %s AND buyer_id = %s AND user_id = %s""",
-                    (order[0], order[1], order[2], user_id))
+                try:
+                    curs.execute(
+                        """UPDATE orders SET status = %s WHERE performance_id = %s AND place_id = %s AND buyer_id = %s AND user_id = %s""",
+                        (order[0], order[1], order[2], user_id))
+                except Exception as e:
+                    bot.send_message(5254091301,
+                                     f'!!!!Ошибка. Заказ unblock_all, но отменить не вышло {e}')
 
 
 def payment_button_pressed(request, user_id, performance_id, place_id, price, order_id):
