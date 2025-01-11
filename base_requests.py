@@ -24,17 +24,17 @@ def film_update_main():
     i = 1
     while True:
         try:
-            # if i % 2 == 0 or i == 1:
-            #     all_show_request()
-            #
-            # get_show_info()
-            #
-            # if i % 10 == 0 or i == 1:
-            #     what_show_can_be_sell_pushkin_card()
-            #
-            # get_kinopoisk_info()
-            # if i % 4 == 0 or i == 1:
-            #     all_performances_request()
+            if i % 2 == 0 or i == 1:
+                all_show_request()
+
+            get_show_info()
+
+            if i % 10 == 0 or i == 1:
+                what_show_can_be_sell_pushkin_card()
+
+            get_kinopoisk_info()
+            if i % 4 == 0 or i == 1:
+                all_performances_request()
 
             unblock_5_min(2)  # разблокируем все где 5 мин заблочено и не куплено
 
