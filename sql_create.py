@@ -53,19 +53,19 @@ with psycopg2.connect(db_path) as pg_conn:
         );
         """)
 
-        pg_cursor.execute("""
-            -- 1. Добавляем новую колонку с типом TEXT
-            ALTER TABLE show ADD COLUMN duration_text TEXT;
-            
-            -- 2. Копируем данные из старой колонки в новую (если данные можно безопасно преобразовать)
-            UPDATE show SET duration_text = CAST(duration AS TEXT);
-            
-            -- 3. Удаляем старую колонку
-            ALTER TABLE show DROP COLUMN duration;
-            
-            -- 4. Переименовываем новую колонку в имя старой
-            ALTER TABLE show RENAME COLUMN duration_text TO duration;
-        """)
+        # pg_cursor.execute("""
+        #     -- 1. Добавляем новую колонку с типом TEXT
+        #     ALTER TABLE show ADD COLUMN duration_text TEXT;
+        #
+        #     -- 2. Копируем данные из старой колонки в новую (если данные можно безопасно преобразовать)
+        #     UPDATE show SET duration_text = CAST(duration AS TEXT);
+        #
+        #     -- 3. Удаляем старую колонку
+        #     ALTER TABLE show DROP COLUMN duration;
+        #
+        #     -- 4. Переименовываем новую колонку в имя старой
+        #     ALTER TABLE show RENAME COLUMN duration_text TO duration;
+        # """)
 
         pg_cursor.execute("""
         CREATE TABLE IF NOT EXISTS performance (

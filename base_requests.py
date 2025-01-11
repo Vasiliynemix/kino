@@ -191,11 +191,11 @@ def what_show_can_be_sell_pushkin_card():
                         film_name = show[0].lower()
                         if film_name in accepted_films_list:
                             curs.execute(
-                                """UPDATE show SET pushkin_card = True, pu_number = %s, id_procult = %s WHERE name = %s""",
+                                """UPDATE show SET pushkin_card = 1, pu_number = %s, id_procult = %s WHERE name = %s""",
                                 (pu_number_list[film_name], id_procult_list[film_name], show[0]))
                             # print('True', show[0].lower())
                         elif film_name not in accepted_films_list:
-                            curs.execute("""UPDATE show SET pushkin_card = False WHERE name = %s""", (show[0],))
+                            curs.execute("""UPDATE show SET pushkin_card = 0 WHERE name = %s""", (show[0],))
                             # print('False', show[0].lower())
 
         # if response.status_code == 200:
