@@ -77,7 +77,7 @@ def start_text(message):
 
     with psycopg2.connect(db_path) as conn:  # использование psycopg2 для PostgreSQL
         with conn.cursor() as curs:
-            curs.execute("""SELECT payment_id FROM orders WHERE order_id = $1;""", (order_id,))
+            curs.execute("""SELECT payment_id FROM orders WHERE order_id = %s;""", (order_id,))
             performance = curs.fetchone()
     # is_succeeded = base_requests.check_payment_status(performance[0])
 
@@ -102,7 +102,7 @@ def state_machine_callback(callback):
             # регистрируем пользователя
             with psycopg2.connect(db_path) as conn:  # использование psycopg2 для PostgreSQL
                 with conn.cursor() as curs:
-                    curs.execute("""UPDATE users SET city = $1 WHERE user_id = $2""",
+                    curs.execute("""UPDATE users SET city = %s WHERE user_id = %s""",
                                  (callback_data[1], callback.from_user.id))
             send_messages.send_dates(callback)
 

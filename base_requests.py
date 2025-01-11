@@ -24,17 +24,17 @@ def film_update_main():
     i = 1
     while True:
         try:
-            if i % 2 == 0 or i == 1:
-                all_show_request()
-
-            get_show_info()
-
-            if i % 10 == 0 or i == 1:
-                what_show_can_be_sell_pushkin_card()
-
-            get_kinopoisk_info()
-            if i % 4 == 0 or i == 1:
-                all_performances_request()
+            # if i % 2 == 0 or i == 1:
+            #     all_show_request()
+            #
+            # get_show_info()
+            #
+            # if i % 10 == 0 or i == 1:
+            #     what_show_can_be_sell_pushkin_card()
+            #
+            # get_kinopoisk_info()
+            # if i % 4 == 0 or i == 1:
+            #     all_performances_request()
 
             unblock_5_min(2)  # разблокируем все где 5 мин заблочено и не куплено
 
@@ -85,12 +85,12 @@ def all_show_request():
                     for show in data_show:
                         # print(show, '\n')
                         show['ShowName'] = show['ShowName'].replace('&quot;', '').replace('«', '').replace('»', '')
-                        curs.execute("""INSERT INTO show (show_id, name, duration) VALUES ($1, $2, $3) ON CONFLICT (show_id) DO NOTHING;""",
+                        curs.execute("""INSERT INTO show (show_id, name, duration) VALUES (%s, %s, %s) ON CONFLICT (show_id) DO NOTHING;""",
                                      (show['IdShow'], show['ShowName'], show['Duration']))
                         # если обновили название, то оно обновится в базе
-                        curs.execute("""UPDATE show SET name = $1, duration = $2 WHERE show_id = $3""",
+                        curs.execute("""UPDATE show SET name = %s, duration = %s WHERE show_id = %s""",
                                      (show['ShowName'], show['Duration'], show['IdShow']))
-                        # shows = curs.execute("""SELECT name FROM show WHERE show_id = $1;""", (43537885,)).fetchall()
+                        # shows = curs.execute("""SELECT name FROM show WHERE show_id = %s;""", (43537885,)).fetchall()
                         # print(shows)
         except json.JSONDecodeError as json_err:
             logger.exception("Ошибка декодирования JSON")
@@ -128,7 +128,7 @@ def get_show_info():
                     if response.status_code == 200:
                         data_show = response.json()
                         # print(data_show, '\n')
-                        curs.execute("""UPDATE show SET kinopoisk_id = $1 WHERE show_id = $2""",
+                        curs.execute("""UPDATE show SET kinopoisk_id = %s WHERE show_id = %s""",
                                      (data_show['Remark'], show_id))
                     else:
                         pass
@@ -191,11 +191,11 @@ def what_show_can_be_sell_pushkin_card():
                         film_name = show[0].lower()
                         if film_name in accepted_films_list:
                             curs.execute(
-                                """UPDATE show SET pushkin_card = True, pu_number = $1, id_procult = $2 WHERE name = $3""",
+                                """UPDATE show SET pushkin_card = True, pu_number = %s, id_procult = %s WHERE name = %s""",
                                 (pu_number_list[film_name], id_procult_list[film_name], show[0]))
                             # print('True', show[0].lower())
                         elif film_name not in accepted_films_list:
-                            curs.execute("""UPDATE show SET pushkin_card = False WHERE name = $1""", (show[0],))
+                            curs.execute("""UPDATE show SET pushkin_card = False WHERE name = %s""", (show[0],))
                             # print('False', show[0].lower())
 
         # if response.status_code == 200:
@@ -244,7 +244,7 @@ def get_kinopoisk_info():
                         else:
                             poster = poster['url']
                         curs.execute(
-                            """UPDATE show SET description = $1, poster = $2, kp_rating = $3 WHERE kinopoisk_id = $4""", (
+                            """UPDATE show SET description = %s, poster = %s, kp_rating = %s WHERE kinopoisk_id = %s""", (
                                 data_kinopoisk['description'], poster,
                                 data_kinopoisk['rating']['kp'],
                                 kinopoisk_id))
@@ -291,7 +291,7 @@ def all_performances_request():
                             # отсеиваем все, что прошло более 14 минут назад
                             # print(data_performance)
                             curs.execute(
-                                """INSERT INTO performance (performance_id, show_id, building_id, hallname, date, time, minprice, maxprice, freeplaces, building_name, hall_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (performance_id) DO NOTHING;""",
+                                """INSERT INTO performance (performance_id, show_id, building_id, hallname, date, time, minprice, maxprice, freeplaces, building_name, hall_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (performance_id) DO NOTHING;""",
                                 (data_performance['IdPerformance'], data_performance['IdShow'],
                                  data_performance['IdBuilding'], data_performance['HallName'], date_str, time_str,
                                  data_performance['MinPrice'], data_performance['MaxPrice'], data_performance['FreePlace'],
@@ -311,7 +311,7 @@ def user_reg(user_id):  # проверяем зареган ли пользов�
     with psycopg2.connect(db_path) as data:
         with data.cursor() as curs:
             # если пользователя еще нет
-            curs.execute("""SELECT user_id FROM users WHERE user_id = $1;""", (user_id,))
+            curs.execute("""SELECT user_id FROM users WHERE user_id = %s;""", (user_id,))
             user = curs.fetchone()
             if user == None:
                 # получаем  идентификатор клиента и регистрируем пользователя
@@ -324,10 +324,10 @@ def user_reg(user_id):  # проверяем зареган ли пользов�
                 response = requests.request("GET", url_kino_baza, params=params)
                 try:
                     buyer = response.json()
-                    curs.execute("""INSERT INTO users (user_id, buyer_id) VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING;""",
+                    curs.execute("""INSERT INTO users (user_id, buyer_id) VALUES (%s, %s) ON CONFLICT (user_id) DO NOTHING;""",
                                  (user_id, buyer['IdClient']))
                 except Exception:
-                    curs.execute("""INSERT INTO users (user_id, buyer_id) VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING;""", (user_id, 998277))
+                    curs.execute("""INSERT INTO users (user_id, buyer_id) VALUES (%s, %s) ON CONFLICT (user_id) DO NOTHING;""", (user_id, 998277))
 
     return
 
@@ -484,7 +484,7 @@ def send_xml_to_ekinobilet(
             # print(200)
             with psycopg2.connect(db_path) as data:
                 with data.cursor() as curs:
-                    curs.execute("""UPDATE orders SET report_sented = True WHERE payment_id = $1""", (payment_id,))
+                    curs.execute("""UPDATE orders SET report_sented = True WHERE payment_id = %s""", (payment_id,))
 
         else:
             bot.send_message(5254091301,
@@ -507,7 +507,7 @@ def check_payment_status(payment_id, report=True):
 
     with psycopg2.connect(db_path) as data:
         with data.cursor() as curs:
-            curs.execute("""SELECT * FROM orders WHERE payment_id = $1""", (payment_id,))
+            curs.execute("""SELECT * FROM orders WHERE payment_id = %s""", (payment_id,))
             order_data = curs.fetchone()
 
     order_id = order_data[0]
@@ -541,7 +541,7 @@ def check_payment_status(payment_id, report=True):
 
             with psycopg2.connect(db_path) as data:
                 with data.cursor() as curs:
-                    curs.execute("""UPDATE orders SET status = 0 WHERE payment_id = $1""", (payment_id,))
+                    curs.execute("""UPDATE orders SET status = 0 WHERE payment_id = %s""", (payment_id,))
             perf_markup = types.InlineKeyboardMarkup(row_width=5)
             perf_webapp = types.WebAppInfo(f"{url}/kino/{performance_id}")  # создаем webapp
             perf_but = types.KeyboardButton(text='Тот самый сеанс', web_app=perf_webapp)
@@ -583,22 +583,22 @@ def check_payment_status(payment_id, report=True):
                 kino_add_payment_id = payment_kino['IdPayment']
                 with psycopg2.connect(db_path) as data:
                     with data.cursor() as curs:
-                        curs.execute("""UPDATE orders SET status = 1, kino_add_payment_id = $1 WHERE payment_id = $2""",
+                        curs.execute("""UPDATE orders SET status = 1, kino_add_payment_id = %s WHERE payment_id = %s""",
                                      (kino_add_payment_id, payment_id))
 
-                        curs.execute("""SELECT * FROM performance WHERE performance_id = $1""",
+                        curs.execute("""SELECT * FROM performance WHERE performance_id = %s""",
                                                         (performance_id,))
                         performance_data = curs.fetchone()
 
-                        curs.execute("""SELECT fond_kino_id FROM cinemas WHERE building_id = $1""",
+                        curs.execute("""SELECT fond_kino_id FROM cinemas WHERE building_id = %s""",
                                                     (performance_data[2],))
                         fond_kino_id = curs.fetchone()[0]
 
-                        curs.execute("""SELECT pu_number, name, id_procult FROM show WHERE show_id = $1""",
+                        curs.execute("""SELECT pu_number, name, id_procult FROM show WHERE show_id = %s""",
                                                  (performance_data[1],))
                         show_data = curs.fetchone()
 
-                        curs.execute("""SELECT report_sented FROM orders WHERE payment_id = $1""",
+                        curs.execute("""SELECT report_sented FROM orders WHERE payment_id = %s""",
                                                          (payment_id,))
                         is_fk_report_send = curs.fetchone()[0]
             except TypeError:
@@ -610,7 +610,7 @@ def check_payment_status(payment_id, report=True):
                                      f'!!!!Ошибка. Заказ оплачен, но оформить его правильно не вышло\n Я его пропускаю, вот данные клиента и заказа, свяжитесь с ним:order_id {order_data[0]}\nuser_id_tg {order_data[1]}\nperformance {order_data[3]}\nplace_id {order_data[4]}\nряд {order_data[11]}\nместо {order_data[12]}\npayment_id {order_data[6]}')
                 with psycopg2.connect(db_path) as data:
                     with data.cursor() as curs:
-                        curs.execute("""UPDATE orders SET status = 4 WHERE payment_id = $1""", (payment_id,))
+                        curs.execute("""UPDATE orders SET status = 4 WHERE payment_id = %s""", (payment_id,))
             except Exception as e:
                 logger.exception("Произошла ошибка")
                 bot.send_message(5254091301,
@@ -633,10 +633,10 @@ def check_payment_status(payment_id, report=True):
 
             with psycopg2.connect(db_path) as data:
                 with data.cursor() as curs:
-                    curs.execute("""SELECT date, time, show_id FROM performance where performance_id = $1""",
+                    curs.execute("""SELECT date, time, show_id FROM performance where performance_id = %s""",
                                  (performance_id,))
                     performance = curs.fetchone()
-                    curs.execute("""SELECT id_procult FROM show where show_id = $1""", (performance[2],))
+                    curs.execute("""SELECT id_procult FROM show where show_id = %s""", (performance[2],))
                     event_id = curs.fetchone()[0]
 
             date_start = performance[0]
@@ -691,13 +691,13 @@ def unblock_all(user_id, performance_id, place_id):
             if place_id == 'all':
                 # берем все брони у пользователя на этот сеанс
                 curs.execute(
-                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = $1 AND performance_id = $2 AND status = $3;""",
+                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = %s AND performance_id = %s AND status = %s;""",
                     (user_id, performance_id))
                 orders_to_close = curs.fetchall()
             else:
                 # берем все брони кроме place_id который нам передали
                 curs.execute(
-                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = $1 AND performance_id = $2 AND status = $3 AND place_id IS NOT $4;""",
+                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = %s AND performance_id = %s AND status = %s AND place_id IS NOT %s;""",
                     (user_id, performance_id, place_id))
                 orders_to_close = curs.fetchall()
 
@@ -721,7 +721,7 @@ def unblock_all(user_id, performance_id, place_id):
                         time.sleep(7)
 
                 curs.execute(
-                    """UPDATE orders SET status == 0 WHERE performance_id = $1 AND place_id = $2 AND buyer_id = $3 AND user_id = $4""",
+                    """UPDATE orders SET status == 0 WHERE performance_id = %s AND place_id = %s AND buyer_id = %s AND user_id = %s""",
                     (order[0], order[1], order[2], user_id))
 
 
@@ -733,7 +733,7 @@ def unblock_5_min(status):
         with data.cursor() as curs:
             # берем все брони где не создан заказ и прошло 5 мин
             curs.execute(
-                """SELECT performance_id, place_id, buyer_id, payment_id, order_id FROM orders WHERE status = $1 AND place_locked_time < $2;""",
+                """SELECT performance_id, place_id, buyer_id, payment_id, order_id FROM orders WHERE status = %s AND place_locked_time < %s;""",
                 (status, time.time() - 300,))
             place_to_unblock = curs.fetchall()
             # print(time.time()-900)
@@ -781,7 +781,7 @@ def unblock_5_min(status):
                                          f'''!!!!!Ошибка в запросе юкассу о проверке статуса заказа\n{payment_id}''')
 
                 curs.execute(
-                    """UPDATE orders SET status = 0 WHERE order_id = $1""",
+                    """UPDATE orders SET status = 0 WHERE order_id = %s""",
                     (order[4],))
 
 
@@ -850,7 +850,7 @@ def decode_unicode(data):
 #         with data.cursor() as curs:
 #             performance_data = [9377428, 43037535, 1009, 'Россия б/з', '2023-05-21', '17:25', 250, 250, 418, 'Россия', 10]
 #             fond_kino_id = \
-#                 curs.execute("""SELECT fond_kino_id FROM cinemas WHERE building_id = $1""",
+#                 curs.execute("""SELECT fond_kino_id FROM cinemas WHERE building_id = %s""",
 #                              (performance_data[2],)).fetchone()[
 #                     0]
 #             show_data = [111006223, 'Хитровка. Знак четырёх', 3144867]

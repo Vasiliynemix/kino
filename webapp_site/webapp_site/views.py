@@ -68,7 +68,7 @@ def process_payment(request):
             # Выполняем логику платежа и заказа
             with psycopg2.connect(db_path) as data:
                 with data.cursor() as curs:
-                    curs.execute("""SELECT payment_id, payment_link, user_id, price, row, place FROM orders WHERE order_id = $1""", (order_id,))
+                    curs.execute("""SELECT payment_id, payment_link, user_id, price, row, place FROM orders WHERE order_id = %s""", (order_id,))
                     order = curs.fetchone()
                     if order is None:
                         return JsonResponse({"status": "error", "message": "Order not found"}, status=404)
@@ -99,7 +99,7 @@ def finishpayment(request, order_id):
     try:
         with psycopg2.connect(db_path) as data:
             with data.cursor() as curs:
-                curs.execute("""SELECT payment_id FROM orders WHERE order_id = $1;""", (order_id,))
+                curs.execute("""SELECT payment_id FROM orders WHERE order_id = %s;""", (order_id,))
                 payment_id = curs.fetchone()[0]
 
         # Здесь идет проверка статуса платежа
@@ -175,13 +175,13 @@ def unblock_all(user_id, performance_id, place_id):
             if place_id == 'all':
                 # берем все брони у пользователя на этот сеанс
                 curs.execute(
-                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = $1 AND performance_id = $2 AND status = 2;""",
+                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = %s AND performance_id = %s AND status = 2;""",
                     (user_id, performance_id))
                 orders_to_close = curs.fetchall()
             else:
                 # берем все брони кроме place_id который нам передали
                 curs.execute(
-                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = $1 AND performance_id = $2 AND status = $3 AND place_id IS NOT $4;""",
+                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = %s AND performance_id = %s AND status = %s AND place_id IS NOT %s;""",
                     (user_id, performance_id, place_id))
                 orders_to_close = curs.fetchall()
 
@@ -206,7 +206,7 @@ def unblock_all(user_id, performance_id, place_id):
                         time.sleep(7)
 
                 curs.execute(
-                    """UPDATE orders SET status = $1 WHERE performance_id = $2 AND place_id = $3 AND buyer_id = $4 AND user_id = $5""",
+                    """UPDATE orders SET status = %s WHERE performance_id = %s AND place_id = %s AND buyer_id = %s AND user_id = %s""",
                     (order[0], order[1], order[2], user_id))
 
 
@@ -214,13 +214,13 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price, or
     with psycopg2.connect(db_path) as data:
         with data.cursor() as curs:
             try:
-                curs.execute("""SELECT buyer_id FROM users WHERE user_id = $1;""", (user_id,))
+                curs.execute("""SELECT buyer_id FROM users WHERE user_id = %s;""", (user_id,))
                 buyer_id = curs.fetchone()[0]
             except TypeError:
                 buyer_id = 998277
 
             curs.execute(
-                """SELECT row, place, price, order_id FROM orders WHERE order_id = $1 AND  user_id = $2 AND status = 1;""",
+                """SELECT row, place, price, order_id FROM orders WHERE order_id = %s AND  user_id = %s AND status = 1;""",
                 (order_id, user_id))
             did_he_almoust_bye = curs.fetchone()
 
@@ -288,7 +288,7 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price, or
     with psycopg2.connect(db_path) as dataf:
         with dataf.cursor() as curs:
             curs.execute(
-                """UPDATE orders SET status = 3, order_id = $1, payment_id = $2, payment_link = $3 WHERE order_id = $4 AND  user_id = $5""",
+                """UPDATE orders SET status = 3, order_id = %s, payment_id = %s, payment_link = %s WHERE order_id = %s AND  user_id = %s""",
                 (order_id, payment_id, payment_link, order_id, user_id))
 
     return render(request, 'payment.html', {'iframe_url': payment_link, 'close_webapp': True, 'order_id': order_id})
@@ -303,7 +303,7 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
         with data.cursor() as curs:
             # вытаскиваем id зала, потому что у некоторых залов специфические настройки
             try:
-                curs.execute("""SELECT buyer_id FROM users WHERE user_id = $1;""", (user_id,))
+                curs.execute("""SELECT buyer_id FROM users WHERE user_id = %s;""", (user_id,))
                 buyer_id = curs.fetchone()[0]
             except TypeError:
                 buyer_id = 998277
@@ -326,7 +326,7 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
     with psycopg2.connect(db_path) as data:
         with data.cursor() as curs:
             curs.execute(
-                """INSERT INTO orders (user_id, buyer_id, performance_id, place_id, place_locked_time, status, place, row) VALUES ($1, $2, $3, $4, $5, 2, $6, $7);""",
+                """INSERT INTO orders (user_id, buyer_id, performance_id, place_id, place_locked_time, status, place, row) VALUES (%s, %s, %s, %s, %s, 2, %s, %s);""",
                 (user_id, buyer_id, performance_id, place_id, place_locked_time, place_place, place_row))
     try:
         if locked_place['Price']:  # если место свободно
@@ -358,7 +358,7 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
             with psycopg2.connect(db_path) as data:
                 with data.cursor() as curs:
                     curs.execute(
-                        """UPDATE orders SET price = $1, order_id = $2 WHERE performance_id = $3 AND place_id = $4 AND buyer_id = $5 AND user_id = $6 AND status = 2;""",
+                        """UPDATE orders SET price = %s, order_id = %s WHERE performance_id = %s AND place_id = %s AND buyer_id = %s AND user_id = %s AND status = 2;""",
                         (price, order_id, performance_id, place_id, buyer_id, user_id))
             seatMap = create_list_of_buttons(performance_id)
             return render(request, 'when_place_choosed.html',
@@ -403,7 +403,7 @@ def create_list_of_buttons(performance_id):
         with psycopg2.connect(db_path) as data:
             with data.cursor() as curs:
                 # вытаскиваем id зала, потому что у некоторых залов специфические настройки
-                curs.execute("""SELECT hall_id FROM performance WHERE performance_id = $1;""",
+                curs.execute("""SELECT hall_id FROM performance WHERE performance_id = %s;""",
                                        (performance_id,))
                 hall_id = curs.fetchone()[0]
         # в цикле мы разбиваем данные так что отдельные ряды это отдельные списки, внутри них есть занятые места и свободные.

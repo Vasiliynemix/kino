@@ -46,7 +46,7 @@ def send_dates(callback):
     with psycopg2.connect(db_path) as conn:
         with conn.cursor() as curs:
             curs.execute(
-                "SELECT DISTINCT DATE(date) FROM performance WHERE date > $1  OR ($2 = date AND $3 <= time) ORDER BY date ASC;",
+                "SELECT DISTINCT DATE(date) FROM performance WHERE date > %s  OR (%s = date AND %s <= time) ORDER BY date ASC;",
                 (today_date, today_date, today_time))
             dates = curs.fetchall()
 
@@ -92,13 +92,13 @@ def send_movies(callback, date):
         with psycopg2.connect(db_path) as conn:
             with conn.cursor() as curs:
                 # получаем город который пользователь указывал ранее, потом кинотеатры этого города
-                curs.execute("""SELECT city FROM users WHERE user_id = $1;""", (callback.from_user.id,))
+                curs.execute("""SELECT city FROM users WHERE user_id = %s;""", (callback.from_user.id,))
                 city = curs.fetchone()
                 try:
-                    curs.execute("""SELECT building_id FROM cinemas WHERE city = $1;""", (city[0],))
+                    curs.execute("""SELECT building_id FROM cinemas WHERE city = %s;""", (city[0],))
                     cinemas = curs.fetchall()
                 except TypeError:  # если человек почему то не выбрал город или он не записался
-                    curs.execute("""SELECT building_id FROM cinemas WHERE city = $1;""",
+                    curs.execute("""SELECT building_id FROM cinemas WHERE city = %s;""",
                                  ('Новосибирск',))
                     cinemas = curs.fetchall()
                 cinemas_list = [cinema[0] for cinema in cinemas]
@@ -115,12 +115,12 @@ def send_movies(callback, date):
                     # мы запрашиваем те сеансы которые проходят в одном из кинотеатров нужного нам города и относятся к нужному нам фильму если есть свободные места и это не зал детская площадка. Выдаем сначала по залу, потом по времени
                     if today_date == date:
                         curs.execute(
-                            f"SELECT * FROM performance WHERE building_id IN ({','.join('$1' * len(cinemas_list))}) AND show_id = $2 AND date = $3 AND freeplaces != 0 AND hall_id != 15 AND $4 <= time ORDER BY hallname, time ASC",
+                            f"SELECT * FROM performance WHERE building_id IN ({','.join('%s' * len(cinemas_list))}) AND show_id = %s AND date = %s AND freeplaces != 0 AND hall_id != 15 AND %s <= time ORDER BY hallname, time ASC",
                             cinemas_list + [show[0]] + [date] + [today_time])
                         performances = curs.fetchall()
                     else:
                         curs.execute(
-                            f"SELECT * FROM performance WHERE building_id IN ({','.join('$1' * len(cinemas_list))}) AND show_id = $2 AND date = $3 AND freeplaces != 0 AND hall_id != 15 ORDER BY hallname, time ASC",
+                            f"SELECT * FROM performance WHERE building_id IN ({','.join('%s' * len(cinemas_list))}) AND show_id = %s AND date = %s AND freeplaces != 0 AND hall_id != 15 ORDER BY hallname, time ASC",
                             cinemas_list + [show[0]] + [date])
                         performances = curs.fetchall()
 
