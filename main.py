@@ -17,7 +17,7 @@ from pkg.log import CustomLogger
 
 CustomLogger().init_logging()
 import sql_create
-import sqlite3
+import psycopg2  # заменено sqlite3 на psycopg2
 from loguru import logger
 import base_requests
 import threading
@@ -27,7 +27,6 @@ import send_messages
 CustomLogger().add_logger(info_log_file, __name__)
 
 threading.Thread(target=base_requests.film_update_main).start()
-
 
 @bot.message_handler(content_types=['text', 'comands'], chat_types=['private'], commands=['db'])
 def logs_text(message):
@@ -76,10 +75,11 @@ def start_text(message):
     except Exception:
         return
 
-    with sqlite3.connect(db_path, timeout=15000) as data:
-        curs = data.cursor()
-        performance = curs.execute("""SELECT payment_id FROM orders WHERE order_id == ?;""", (order_id,))
-    # is_succeeded = base_requests.check_payment_status(performance.fetchone()[0])
+    with psycopg2.connect(db_path) as conn:  # использование psycopg2 для PostgreSQL
+        with conn.cursor() as curs:
+            curs.execute("""SELECT payment_id FROM orders WHERE order_id = $1;""", (order_id,))
+            performance = curs.fetchone()
+    # is_succeeded = base_requests.check_payment_status(performance[0])
 
 
 @bot.message_handler(content_types=['text', 'comands'], chat_types=['private'])
@@ -100,10 +100,10 @@ def state_machine_callback(callback):
         # выдаем выбор даты
         if callback_data[0] == 'choose_cinema':
             # регистрируем пользователя
-            with sqlite3.connect(db_path, timeout=15000) as data:
-                curs = data.cursor()
-                curs.execute("""UPDATE users SET city = ? WHERE user_id == ?""",
-                             (callback_data[1], callback.from_user.id))
+            with psycopg2.connect(db_path) as conn:  # использование psycopg2 для PostgreSQL
+                with conn.cursor() as curs:
+                    curs.execute("""UPDATE users SET city = $1 WHERE user_id = $2""",
+                                 (callback_data[1], callback.from_user.id))
             send_messages.send_dates(callback)
 
         # выдаем фильмы

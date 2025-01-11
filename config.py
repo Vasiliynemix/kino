@@ -48,7 +48,8 @@ bot.set_webhook(
 )
 
 root_path = Path(__file__).parent
-db_path = os.path.join(root_path, "kino.db")
+old_sqlite_path = os.path.join(root_path, "kino.db")
+db_path = os.getenv('POSTGRES_DB_URL')
 log_dir = os.path.join(root_path, "logs")
 error_log_file = os.path.join(log_dir, "error.log")
 info_log_file = os.path.join(log_dir, "info.log")

@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  postgres:
+    container_name: kino
+    image: postgres:latest
+    restart: always
+    environment:
+      POSTGRES_DB: dbname_kino
+      POSTGRES_USER: username_kino
+      POSTGRES_PASSWORD: password_kino
+    ports:
+      - "5789:5432"
+    volumes:
+      - kino_data:/var/lib/postgresql/data
+    command: postgres -N 500
+
+volumes:
+  kino_data:

@@ -3,12 +3,12 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import psycopg2
 import urllib3
 import telebot
 from telebot import TeleBot
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect
-import sqlite3
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -29,7 +29,7 @@ if IS_PROD == "True":
     bot_url = "https://t.me/Mirkinopro_Bot"
     url_server = os.getenv('URL')
 else:
-    url = "https://factual-warthog-witty.ngrok-free.app"
+    url = "https://l8lxne-37-78-194-77.ru.tuna.am"
     url_server = "https://verified-greatly-bonefish.ngrok-free.app"
     BOT_TOKEN = os.getenv('BOT_TOKEN_TEST')  # https://t.me/test_2_func_bot
     bot_url = "https://t.me/test_2_func_bot"
@@ -66,23 +66,24 @@ def process_payment(request):
 
         try:
             # Выполняем логику платежа и заказа
-            with sqlite3.connect(db_path, timeout=15000) as data:
-                curs = data.cursor()
-                order = curs.execute("""SELECT payment_id, payment_link, user_id, price, row, place FROM orders WHERE order_id = ?""", (order_id,)).fetchone()
-                if order is None:
-                    return JsonResponse({"status": "error", "message": "Order not found"}, status=404)
-                payment_link = order[1]
-                user_id = order[2]
-                price = order[3]
-                row = order[4]
-                place = order[5]
+            with psycopg2.connect(db_path) as data:
+                with data.cursor() as curs:
+                    curs.execute("""SELECT payment_id, payment_link, user_id, price, row, place FROM orders WHERE order_id = $1""", (order_id,))
+                    order = curs.fetchone()
+                    if order is None:
+                        return JsonResponse({"status": "error", "message": "Order not found"}, status=404)
+                    payment_link = order[1]
+                    user_id = order[2]
+                    price = order[3]
+                    row = order[4]
+                    place = order[5]
 
-                bot.send_message(
-                    user_id,
-                    f"<b>Заказ №{order_id}.\nЦена: {price} р.\nРяд: {row}\nМесто: {place}</b>",
-                    reply_markup=telebot.types.InlineKeyboardMarkup([[telebot.types.InlineKeyboardButton("Оплатить по Пушкинской карте", url=payment_link)]]),
-                    parse_mode='HTML',
-                )
+                    bot.send_message(
+                        user_id,
+                        f"<b>Заказ №{order_id}.\nЦена: {price} р.\nРяд: {row}\nМесто: {place}</b>",
+                        reply_markup=telebot.types.InlineKeyboardMarkup([[telebot.types.InlineKeyboardButton("Оплатить по Пушкинской карте", url=payment_link)]]),
+                        parse_mode='HTML',
+                    )
 
             return JsonResponse({"status": "success"})
 
@@ -96,9 +97,10 @@ def process_payment(request):
 # формат цены, чтоб не вышло что мне прислали с копейками и из-за этого я плохую сумму пользователю послал, я же в копейках шлю
 def finishpayment(request, order_id):
     try:
-        with sqlite3.connect(db_path, timeout=15000) as data:
-            curs = data.cursor()
-            payment_id = curs.execute("""SELECT payment_id FROM orders WHERE order_id == ?;""", (order_id,)).fetchone()[0]
+        with psycopg2.connect(db_path) as data:
+            with data.cursor() as curs:
+                curs.execute("""SELECT payment_id FROM orders WHERE order_id = $1;""", (order_id,))
+                payment_id = curs.fetchone()[0]
 
         # Здесь идет проверка статуса платежа
         sys.path.append(root_path)
@@ -168,55 +170,59 @@ def kino(request, performance_id):
 
 
 def unblock_all(user_id, performance_id, place_id):
-    with sqlite3.connect(db_path, timeout=15000) as data:
-        curs = data.cursor()
-        if place_id == 'all':
-            # берем все брони у пользователя на этот сеанс
-            orders_to_close = curs.execute(
-                """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id == ? AND performance_id == ? AND status == 2;""",
-                (user_id, performance_id)).fetchall()
-        else:
-            # берем все брони кроме place_id который нам передали
-            orders_to_close = curs.execute(
-                """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id == ? AND performance_id == ? AND status == 2 AND place_id IS NOT ?;""",
-                (user_id, performance_id, place_id)).fetchall()
+    with psycopg2.connect(db_path) as data:
+        with data.cursor() as curs:
+            if place_id == 'all':
+                # берем все брони у пользователя на этот сеанс
+                curs.execute(
+                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = $1 AND performance_id = $2 AND status = 2;""",
+                    (user_id, performance_id))
+                orders_to_close = curs.fetchall()
+            else:
+                # берем все брони кроме place_id который нам передали
+                curs.execute(
+                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = $1 AND performance_id = $2 AND status = $3 AND place_id IS NOT $4;""",
+                    (user_id, performance_id, place_id))
+                orders_to_close = curs.fetchall()
 
-        # print('11111111', orders_to_close)
-        # проходимся по всем таким броням
-        for order in orders_to_close:
-            # print(order)
-            params = {
-                "sp": "WgA_SetOrderToNull",
-                "idOrder": order[3],
-                "df": "J",
-            }
-            for i in range(5):
-                try:
-                    response = requests.request("GET", url_kino_baza, params=params)
-                    logger.info(decode_unicode(response.text))
-                    break
-                except Exception as e:
-                    bot.send_message(5254091301,
-                                     f'!!!!Ошибка. Заказ unblock_all, но отменить не вышло {e}')
-                    logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
-                    time.sleep(7)
+            # print('11111111', orders_to_close)
+            # проходимся по всем таким броням
+            for order in orders_to_close:
+                # print(order)
+                params = {
+                    "sp": "WgA_SetOrderToNull",
+                    "idOrder": order[3],
+                    "df": "J",
+                }
+                for i in range(5):
+                    try:
+                        response = requests.request("GET", url_kino_baza, params=params)
+                        logger.info(decode_unicode(response.text))
+                        break
+                    except Exception as e:
+                        bot.send_message(5254091301,
+                                         f'!!!!Ошибка. Заказ unblock_all, но отменить не вышло {e}')
+                        logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
+                        time.sleep(7)
 
-            curs.execute(
-                """UPDATE orders SET status == 0 WHERE performance_id == ? AND place_id == ? AND buyer_id == ? AND user_id == ?""",
-                (order[0], order[1], order[2], user_id))
+                curs.execute(
+                    """UPDATE orders SET status = $1 WHERE performance_id = $2 AND place_id = $3 AND buyer_id = $4 AND user_id = $5""",
+                    (order[0], order[1], order[2], user_id))
 
 
 def payment_button_pressed(request, user_id, performance_id, place_id, price, order_id):
-    with sqlite3.connect(db_path, timeout=15000) as data:
-        curs = data.cursor()
-        try:
-            buyer_id = curs.execute("""SELECT buyer_id FROM users WHERE user_id == ?;""", (user_id,)).fetchone()[0]
-        except TypeError:
-            buyer_id = 998277
+    with psycopg2.connect(db_path) as data:
+        with data.cursor() as curs:
+            try:
+                curs.execute("""SELECT buyer_id FROM users WHERE user_id = $1;""", (user_id,))
+                buyer_id = curs.fetchone()[0]
+            except TypeError:
+                buyer_id = 998277
 
-        did_he_almoust_bye = curs.execute(
-            """SELECT row, place, price, order_id FROM orders WHERE order_id == ? AND  user_id == ? AND status == 1;""",
-            (order_id, user_id)).fetchone()
+            curs.execute(
+                """SELECT row, place, price, order_id FROM orders WHERE order_id = $1 AND  user_id = $2 AND status = 1;""",
+                (order_id, user_id))
+            did_he_almoust_bye = curs.fetchone()
 
     # unblock_all(user_id, performance_id, "all")  # если у пользователя были другие брони, снимаем их, чтобы не дать ему купить 2 билета
 
@@ -279,11 +285,11 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price, or
     payment_id = payment.id
 
     # пишем в заявку все данные
-    with sqlite3.connect(db_path, timeout=15000) as dataf:
-        curs = dataf.cursor()
-        curs.execute(
-            """UPDATE orders SET status = 3, order_id = ?, payment_id = ?, payment_link = ? WHERE order_id == ? AND  user_id == ?""",
-            (order_id, payment_id, payment_link, order_id, user_id))
+    with psycopg2.connect(db_path) as dataf:
+        with dataf.cursor() as curs:
+            curs.execute(
+                """UPDATE orders SET status = 3, order_id = $1, payment_id = $2, payment_link = $3 WHERE order_id = $4 AND  user_id = $5""",
+                (order_id, payment_id, payment_link, order_id, user_id))
 
     return render(request, 'payment.html', {'iframe_url': payment_link, 'close_webapp': True, 'order_id': order_id})
 
@@ -293,13 +299,14 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
     state, price, place_place, place_row, place_id, place_locked_time = request.POST['chair_but'].split(',')
     user_id = request.POST['user_id']
     # если место занято то {'Error': '-35005' если свободно, то {'Price': '200'}
-    with sqlite3.connect(db_path, timeout=15000) as data:
-        curs = data.cursor()
-        # вытаскиваем id зала, потому что у некоторых залов специфические настройки
-        try:
-            buyer_id = curs.execute("""SELECT buyer_id FROM users WHERE user_id == ?;""", (user_id,)).fetchone()[0]
-        except TypeError:
-            buyer_id = 998277
+    with psycopg2.connect(db_path) as data:
+        with data.cursor() as curs:
+            # вытаскиваем id зала, потому что у некоторых залов специфические настройки
+            try:
+                curs.execute("""SELECT buyer_id FROM users WHERE user_id = $1;""", (user_id,))
+                buyer_id = curs.fetchone()[0]
+            except TypeError:
+                buyer_id = 998277
 
     # print(price, place_place, place_row, place_id, buyer_id)
     params = {
@@ -316,11 +323,11 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
     # print(locked_place)
     # записываем в базу как заказ со статусом 1
     place_locked_time = time.time()
-    with sqlite3.connect(db_path, timeout=15000) as data:
-        curs = data.cursor()
-        curs.execute(
-            """INSERT INTO orders (user_id, buyer_id, performance_id, place_id, place_locked_time, status, place, row) VALUES (?, ?, ?, ?, ?, 2, ?, ?);""",
-            (user_id, buyer_id, performance_id, place_id, place_locked_time, place_place, place_row))
+    with psycopg2.connect(db_path) as data:
+        with data.cursor() as curs:
+            curs.execute(
+                """INSERT INTO orders (user_id, buyer_id, performance_id, place_id, place_locked_time, status, place, row) VALUES ($1, $2, $3, $4, $5, 2, $6, $7);""",
+                (user_id, buyer_id, performance_id, place_id, place_locked_time, place_place, place_row))
     try:
         if locked_place['Price']:  # если место свободно
             # print(locked_place, 'open')
@@ -348,11 +355,11 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
                 unblock_all(user_id, performance_id, "all")
                 return render(request, 'finish.html')
 
-            with sqlite3.connect(db_path, timeout=15000) as data:
-                curs = data.cursor()
-                curs.execute(
-                    """UPDATE orders SET price == ?, order_id == ? WHERE performance_id == ? AND place_id == ? AND buyer_id == ? AND user_id == ? AND status == 2;""",
-                    (price, order_id, performance_id, place_id, buyer_id, user_id))
+            with psycopg2.connect(db_path) as data:
+                with data.cursor() as curs:
+                    curs.execute(
+                        """UPDATE orders SET price = $1, order_id = $2 WHERE performance_id = $3 AND place_id = $4 AND buyer_id = $5 AND user_id = $6 AND status = 2;""",
+                        (price, order_id, performance_id, place_id, buyer_id, user_id))
             seatMap = create_list_of_buttons(performance_id)
             return render(request, 'when_place_choosed.html',
                           {'form': form, 'back_value': f'back,{price},{place_place},{place_row},{place_id},{order_id}',
@@ -393,11 +400,12 @@ def create_list_of_buttons(performance_id):
         # print(response.text)
         data_show = response.json()
         # print(data_show, '\n\n')
-        with sqlite3.connect(db_path, timeout=15000) as data:
-            curs = data.cursor()
-            # вытаскиваем id зала, потому что у некоторых залов специфические настройки
-            hall_id = curs.execute("""SELECT hall_id FROM performance WHERE performance_id == ?;""",
-                                   (performance_id,)).fetchone()[0]
+        with psycopg2.connect(db_path) as data:
+            with data.cursor() as curs:
+                # вытаскиваем id зала, потому что у некоторых залов специфические настройки
+                curs.execute("""SELECT hall_id FROM performance WHERE performance_id = $1;""",
+                                       (performance_id,))
+                hall_id = curs.fetchone()[0]
         # в цикле мы разбиваем данные так что отдельные ряды это отдельные списки, внутри них есть занятые места и свободные.
         seatMap = []
         row = []

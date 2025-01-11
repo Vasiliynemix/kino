@@ -2,8 +2,8 @@ import hashlib
 import json
 import os
 
+import psycopg2
 import requests
-import sqlite3
 import time
 import datetime
 
@@ -19,7 +19,6 @@ from config import bot, url_kino_baza, url_prokultura, kinopoisk_token, info_log
 from pkg.log import CustomLogger
 
 CustomLogger().add_logger(info_log_file, __name__)
-
 
 def film_update_main():
     i = 1
@@ -42,23 +41,24 @@ def film_update_main():
             # unblock_5_min(3)  # разблокируем все где 5 мин есть ссылка, но не оплочено
 
             # проверяем всех кто должен оплатить
-            with sqlite3.connect(db_path, timeout=15000) as data:
-                curs = data.cursor()
-                orders = curs.execute("""SELECT payment_id FROM orders WHERE status == 3;""").fetchall()
+            with psycopg2.connect(db_path) as conn:
+                with conn.cursor() as curs:
+                    curs.execute("""SELECT payment_id FROM orders WHERE status = 3;""")
+                    orders = curs.fetchall()
+
             for order in orders:
                 try:
                     check_payment_status(order[0])
                 except Exception as e:
-                    logger.exception(
-                        f"Произошла ошибка в вызове функций по обновлению всей базы film_update_main check_payment_status\n{e}")
+                    logger.exception(f"Произошла ошибка в вызове функций по обновлению всей базы film_update_main check_payment_status\n{e}")
                     bot.send_message(5254091301,
                                      f'Ошибка в вызове функций по обновлению всей базы film_update_main check_payment_status\n{e}')
             # with open('enviroments/kino/film_update.txt', 'a') as file:
             #               file.write(f"")
             # print(f'i = {i}\nall_show_request {round(t2-t1, 3)}\nget_show_info {round(t3-t2, 3)}\nwhat_show_can_be_sell_pushkin_card {round(t4-t3, 3)}\nget_kinopoisk_info {round(t5-t4, 3)}\nall_performances_request {round(t6-t5, 3)}\nunblock_5_min {round(t7-t6, 3)}\ncheck_payment_status {round(t8-t7, 3)}\nвсе {round(t8-t1, 3)}')
-            # with sqlite3.connect(db_path, timeout=15000) as data:
-            #     curs = data.cursor()
-            #     curs.execute("""UPDATE show SET pushkin_card = 1""")
+            # with psycopg2.connect(db_path) as conn:
+            #     with conn.cursor() as curs:
+            #         curs.execute("""UPDATE show SET pushkin_card = 1""")
 
         except Exception as e:
             logger.exception("Произошла ошибка")
@@ -79,19 +79,19 @@ def all_show_request():
 
     if response.status_code == 200:
         try:
-            with sqlite3.connect(db_path, timeout=15000) as data:
-                curs = data.cursor()
-                data_show = response.json()
-                for show in data_show:
-                    # print(show, '\n')
-                    show['ShowName'] = show['ShowName'].replace('&quot;', '').replace('«', '').replace('»', '')
-                    curs.execute("""INSERT OR IGNORE INTO show (show_id, name, duration) VALUES (?, ?, ?);""",
-                                 (show['IdShow'], show['ShowName'], show['Duration']))
-                    # если обновили название, то оно обновится в базе
-                    curs.execute("""UPDATE show SET name = ?, duration = ? WHERE show_id = ?""",
-                                 (show['ShowName'], show['Duration'], show['IdShow']))
-                    # shows = curs.execute("""SELECT name FROM show WHERE show_id == ?;""", (43537885,)).fetchall()
-                    # print(shows)
+            with psycopg2.connect(db_path) as conn:
+                with conn.cursor() as curs:
+                    data_show = response.json()
+                    for show in data_show:
+                        # print(show, '\n')
+                        show['ShowName'] = show['ShowName'].replace('&quot;', '').replace('«', '').replace('»', '')
+                        curs.execute("""INSERT INTO show (show_id, name, duration) VALUES ($1, $2, $3) ON CONFLICT (show_id) DO NOTHING;""",
+                                     (show['IdShow'], show['ShowName'], show['Duration']))
+                        # если обновили название, то оно обновится в базе
+                        curs.execute("""UPDATE show SET name = $1, duration = $2 WHERE show_id = $3""",
+                                     (show['ShowName'], show['Duration'], show['IdShow']))
+                        # shows = curs.execute("""SELECT name FROM show WHERE show_id = $1;""", (43537885,)).fetchall()
+                        # print(shows)
         except json.JSONDecodeError as json_err:
             logger.exception("Ошибка декодирования JSON")
             bot.send_message(5254091301, f'Ошибка при декодировании JSON-ответа от сервера: {json_err}')
@@ -106,32 +106,33 @@ def all_show_request():
 
 def get_show_info():
     try:
-        with sqlite3.connect(db_path, timeout=15000) as data:
-            curs = data.cursor()
-            shows = curs.execute("""SELECT show_id FROM show WHERE kinopoisk_id IS NULL;""").fetchall()
-            # print(shows)
-            for show in shows:
-                show_id = show[0]
-                # запрашиваем список всех show
-                params = {
-                    "sp": "Wga_GetShowInfo",
-                    # 'IdBuilding': '3522',
-                    'idShow': show_id,
-                    # 'IdPerformance': '9371432',
-                    "df": "J"
-                }
+        with psycopg2.connect(db_path) as conn:
+            with conn.cursor() as curs:
+                curs.execute("""SELECT show_id FROM show WHERE kinopoisk_id IS NULL;""")
+                shows = curs.fetchall()
+                # print(shows)
+                for show in shows:
+                    show_id = show[0]
+                    # запрашиваем список всех show
+                    params = {
+                        "sp": "Wga_GetShowInfo",
+                        # 'IdBuilding': '3522',
+                        'idShow': show_id,
+                        # 'IdPerformance': '9371432',
+                        "df": "J"
+                    }
 
-                response = requests.request("GET", url_kino_baza, params=params)
-                # print(response.url)
+                    response = requests.request("GET", url_kino_baza, params=params)
+                    # print(response.url)
 
-                if response.status_code == 200:
-                    data_show = response.json()
-                    # print(data_show, '\n')
-                    curs.execute("""UPDATE show SET kinopoisk_id = ? WHERE show_id == ?""",
-                                 (data_show['Remark'], show_id))
-                else:
-                    pass
-                    # bot.send_message(5254091301, f'Ошибка по запросу Wga_GetShowInfo\nВ ответ на запрос возвращается код {response.status_code}')
+                    if response.status_code == 200:
+                        data_show = response.json()
+                        # print(data_show, '\n')
+                        curs.execute("""UPDATE show SET kinopoisk_id = $1 WHERE show_id = $2""",
+                                     (data_show['Remark'], show_id))
+                    else:
+                        pass
+                        # bot.send_message(5254091301, f'Ошибка по запросу Wga_GetShowInfo\nВ ответ на запрос возвращается код {response.status_code}')
 
     except Exception as e:
         logger.exception("Произошла ошибка")
@@ -178,28 +179,29 @@ def what_show_can_be_sell_pushkin_card():
                 # print(event, '\n\n\n')
                 accepted_films_list.append(film_name)
 
-            with sqlite3.connect(db_path, timeout=15000) as data:
-                curs = data.cursor()
-                # берем все фильмы что у нас есть, и сверяем названия со списком разрешенных.
-                # ghb этом названия могут быть одинаковые у нескольких шоу, меняем у всех
-                shows = curs.execute("""SELECT DISTINCT name FROM show;""").fetchall()
-                # print(accepted_films_list)
-                # print(id_procult_list)
-                for show in shows:
-                    film_name = show[0].lower()
-                    if film_name in accepted_films_list:
-                        curs.execute(
-                            """UPDATE show SET pushkin_card = True, pu_number = ?, id_procult = ? WHERE name == ?""",
-                            (pu_number_list[film_name], id_procult_list[film_name], show[0]))
-                        # print('True', show[0].lower())
-                    elif film_name not in accepted_films_list:
-                        curs.execute("""UPDATE show SET pushkin_card = False WHERE name == ?""", (show[0],))
-                        # print('False', show[0].lower())
+            with psycopg2.connect(db_path) as conn:
+                with conn.cursor() as curs:
+                    # берем все фильмы что у нас есть, и сверяем названия со списком разрешенных.
+                    # ghb этом названия могут быть одинаковые у нескольких шоу, меняем у всех
+                    curs.execute("""SELECT DISTINCT name FROM show;""")
+                    shows = curs.fetchall()
+                    # print(accepted_films_list)
+                    # print(id_procult_list)
+                    for show in shows:
+                        film_name = show[0].lower()
+                        if film_name in accepted_films_list:
+                            curs.execute(
+                                """UPDATE show SET pushkin_card = True, pu_number = $1, id_procult = $2 WHERE name = $3""",
+                                (pu_number_list[film_name], id_procult_list[film_name], show[0]))
+                            # print('True', show[0].lower())
+                        elif film_name not in accepted_films_list:
+                            curs.execute("""UPDATE show SET pushkin_card = False WHERE name = $1""", (show[0],))
+                            # print('False', show[0].lower())
 
         # if response.status_code == 200:
         #     data_show = response.json()
         #     print(data_show['Remark'], '\n')
-        #     curs.execute("""UPDATE show SET kinopoisk_id = ? WHERE show_id == ?""", (data_show['Remark'], show_id))
+        #     curs.execute("""UPDATE show SET kinopoisk_id = %s WHERE show_id = %s""", (data_show['Remark'], show_id))
         else:
             # print(response.text)
             bot.send_message(5254091301,
@@ -214,40 +216,41 @@ def what_show_can_be_sell_pushkin_card():
 
 def get_kinopoisk_info():
     try:
-        with sqlite3.connect(db_path, timeout=15000) as data:
-            curs = data.cursor()
-            shows = curs.execute(
-                """SELECT kinopoisk_id FROM show WHERE kinopoisk_id IS NOT NULL AND kinopoisk_id != ' ' AND (poster IS NULL OR poster == '');""").fetchall()
-            # print(shows)
-            for show in shows:
-                kinopoisk_id = show[0]
-                # запрашиваем список всех show
-                # 'https://api.kinopoisk.dev/v1/movie/4907586'
-                params = {
-                    "token": f"{kinopoisk_token}"
-                }
+        with psycopg2.connect(db_path) as data:
+            with data.cursor() as curs:
+                curs.execute(
+                    """SELECT kinopoisk_id FROM show WHERE kinopoisk_id IS NOT NULL AND kinopoisk_id != ' ' AND (poster IS NULL OR poster = '');""")
+                shows = curs.fetchall()
+                # print(shows)
+                for show in shows:
+                    kinopoisk_id = show[0]
+                    # запрашиваем список всех show
+                    # 'https://api.kinopoisk.dev/v1/movie/4907586'
+                    params = {
+                        "token": f"{kinopoisk_token}"
+                    }
 
-                response = requests.request("GET", f'https://api.kinopoisk.dev/v1/movie/{kinopoisk_id}', params=params)
-                # print(response.url)
+                    response = requests.request("GET", f'https://api.kinopoisk.dev/v1/movie/{kinopoisk_id}', params=params)
+                    # print(response.url)
 
-                if response.status_code == 200:
-                    data_kinopoisk = response.json()
-                    # print(data_kinopoisk['description'], '\n')
-                    # print(data_kinopoisk['poster']['url'], '\n')
-                    # print(data_kinopoisk['rating']['kp'], '\n')
-                    poster = data_kinopoisk.get("poster")
-                    if poster is None:
-                        poster = ''
+                    if response.status_code == 200:
+                        data_kinopoisk = response.json()
+                        # print(data_kinopoisk['description'], '\n')
+                        # print(data_kinopoisk['poster']['url'], '\n')
+                        # print(data_kinopoisk['rating']['kp'], '\n')
+                        poster = data_kinopoisk.get("poster")
+                        if poster is None:
+                            poster = ''
+                        else:
+                            poster = poster['url']
+                        curs.execute(
+                            """UPDATE show SET description = $1, poster = $2, kp_rating = $3 WHERE kinopoisk_id = $4""", (
+                                data_kinopoisk['description'], poster,
+                                data_kinopoisk['rating']['kp'],
+                                kinopoisk_id))
                     else:
-                        poster = poster['url']
-                    curs.execute(
-                        """UPDATE show SET description = ?, poster = ?, kp_rating = ? WHERE kinopoisk_id == ?""", (
-                            data_kinopoisk['description'], poster,
-                            data_kinopoisk['rating']['kp'],
-                            kinopoisk_id))
-                else:
-                    bot.send_message(5254091301,
-                                     f'Ошибка по запросу get_kinopoisk_info \nВ ответ на запрос возвращается код {response.status_code}')
+                        bot.send_message(5254091301,
+                                         f'Ошибка по запросу get_kinopoisk_info \nВ ответ на запрос возвращается код {response.status_code}')
 
     except Exception as e:
         logger.exception("Произошла ошибка")
@@ -266,35 +269,35 @@ def all_performances_request():
     if response.status_code == 200:
         try:
             data_performances = response.json()
-            with sqlite3.connect(db_path, timeout=15000) as data:
-                curs = data.cursor()
-                # если получен верный запрос в верной форме, стираем старые сеансы и заполняем заново
-                curs.execute("""DELETE FROM performance""")
-                for data_performance in data_performances:
-                    try:
-                        # print(data_performance)
-                        # Получение отдельной даты и времени
+            with psycopg2.connect(db_path) as data:
+                with data.cursor() as curs:
+                    # если получен верный запрос в верной форме, стираем старые сеансы и заполняем заново
+                    curs.execute("""DELETE FROM performance""")
+                    for data_performance in data_performances:
                         try:
-                            dt = datetime.datetime.strptime(data_performance['DateTime'], "%B %d %Y %I:%M:%S:%f%p")
-                        except ValueError:
-                            dt = datetime.datetime.strptime(data_performance['DateTime'], "%b %d %Y %I:%M:%S:%f%p")
-                        date = dt.date()
-                        date_str = datetime.datetime.strftime(date, '%Y-%m-%d')
-                        time = dt.time()
-                        time_str = time.strftime('%H:%M')
+                            # print(data_performance)
+                            # Получение отдельной даты и времени
+                            try:
+                                dt = datetime.datetime.strptime(data_performance['DateTime'], "%B %d %Y %I:%M:%S:%f%p")
+                            except ValueError:
+                                dt = datetime.datetime.strptime(data_performance['DateTime'], "%b %d %Y %I:%M:%S:%f%p")
+                            date = dt.date()
+                            date_str = datetime.datetime.strftime(date, '%Y-%m-%d')
+                            time = dt.time()
+                            time_str = time.strftime('%H:%M')
 
-                        # print(date_str, time)
-                        # print(today_date, date_str, today_time, time_str)
-                        # отсеиваем все, что прошло более 14 минут назад
-                        # print(data_performance)
-                        curs.execute(
-                            """INSERT OR IGNORE INTO performance (performance_id, show_id, building_id, hallname, date, time, minprice, maxprice, freeplaces, building_name, hall_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);""",
-                            (data_performance['IdPerformance'], data_performance['IdShow'],
-                             data_performance['IdBuilding'], data_performance['HallName'], date_str, time_str,
-                             data_performance['MinPrice'], data_performance['MaxPrice'], data_performance['FreePlace'],
-                             data_performance['BuildingName'], data_performance['IdHall']))
-                    except Exception as e:
-                        logger.exception(f"Произошла ошибка {e}")
+                            # print(date_str, time)
+                            # print(today_date, date_str, today_time, time_str)
+                            # отсеиваем все, что прошло более 14 минут назад
+                            # print(data_performance)
+                            curs.execute(
+                                """INSERT OR IGNORE INTO performance (performance_id, show_id, building_id, hallname, date, time, minprice, maxprice, freeplaces, building_name, hall_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);""",
+                                (data_performance['IdPerformance'], data_performance['IdShow'],
+                                 data_performance['IdBuilding'], data_performance['HallName'], date_str, time_str,
+                                 data_performance['MinPrice'], data_performance['MaxPrice'], data_performance['FreePlace'],
+                                 data_performance['BuildingName'], data_performance['IdHall']))
+                        except Exception as e:
+                            logger.exception(f"Произошла ошибка {e}")
 
         except Exception as e:
             logger.exception("Произошла ошибка")
@@ -305,25 +308,26 @@ def all_performances_request():
 
 
 def user_reg(user_id):  # проверяем зареган ли пользователь, если нет то регаем
-    with sqlite3.connect(db_path, timeout=15000) as data:
-        curs = data.cursor()
-        # если пользователя еще нет
-        user = curs.execute("""SELECT user_id FROM users WHERE user_id == ?;""", (user_id,)).fetchone()
-        if user == None:
-            # получаем  идентификатор клиента и регистрируем пользователя
-            params = {
-                "sp": "Wga_Autorize",
-                "Login": f'a{user_id}с',
-                "Name": f"tg_id{user_id}",
-                "IdDocument": "3165",
-                "df": "J"}
-            response = requests.request("GET", url_kino_baza, params=params)
-            try:
-                buyer = response.json()
-                curs.execute("""INSERT OR IGNORE INTO users (user_id, buyer_id) VALUES (?, ?);""",
-                             (user_id, buyer['IdClient']))
-            except Exception:
-                curs.execute("""INSERT OR IGNORE INTO users (user_id, buyer_id) VALUES (?, ?);""", (user_id, 998277))
+    with psycopg2.connect(db_path) as data:
+        with data.cursor() as curs:
+            # если пользователя еще нет
+            curs.execute("""SELECT user_id FROM users WHERE user_id = $1;""", (user_id,))
+            user = curs.fetchone()
+            if user == None:
+                # получаем  идентификатор клиента и регистрируем пользователя
+                params = {
+                    "sp": "Wga_Autorize",
+                    "Login": f'a{user_id}с',
+                    "Name": f"tg_id{user_id}",
+                    "IdDocument": "3165",
+                    "df": "J"}
+                response = requests.request("GET", url_kino_baza, params=params)
+                try:
+                    buyer = response.json()
+                    curs.execute("""INSERT OR IGNORE INTO users (user_id, buyer_id) VALUES ($1, $2);""",
+                                 (user_id, buyer['IdClient']))
+                except Exception:
+                    curs.execute("""INSERT OR IGNORE INTO users (user_id, buyer_id) VALUES ($1, $2);""", (user_id, 998277))
 
     return
 
@@ -478,9 +482,9 @@ def send_xml_to_ekinobilet(
         # print(text_resp)
         if 'error' not in text_resp:
             # print(200)
-            with sqlite3.connect(db_path, timeout=15000) as data:
-                curs = data.cursor()
-                curs.execute("""UPDATE orders SET report_sented = True WHERE payment_id == ?""", (payment_id,))
+            with psycopg2.connect(db_path) as data:
+                with data.cursor() as curs:
+                    curs.execute("""UPDATE orders SET report_sented = True WHERE payment_id = $1""", (payment_id,))
 
         else:
             bot.send_message(5254091301,
@@ -501,9 +505,10 @@ def check_payment_status(payment_id, report=True):
     payment = Payment.find_one(payment_id)
     payment_status = payment.status
 
-    with sqlite3.connect(db_path, timeout=15000) as data:
-        curs = data.cursor()
-        order_data = curs.execute("""SELECT * FROM orders WHERE payment_id = ?""", (payment_id,)).fetchone()
+    with psycopg2.connect(db_path) as data:
+        with data.cursor() as curs:
+            curs.execute("""SELECT * FROM orders WHERE payment_id = $1""", (payment_id,))
+            order_data = curs.fetchone()
 
     order_id = order_data[0]
     place_id = order_data[4]
@@ -533,9 +538,10 @@ def check_payment_status(payment_id, report=True):
                                      f'!!!!Ошибка. Заказ canceled, но отменить не вышло {e}')
                     logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
                     time.sleep(7)
-            with sqlite3.connect(db_path, timeout=15000) as data:
-                curs = data.cursor()
-                curs.execute("""UPDATE orders SET status = 0 WHERE payment_id == ?""", (payment_id,))
+
+            with psycopg2.connect(db_path) as data:
+                with data.cursor() as curs:
+                    curs.execute("""UPDATE orders SET status = 0 WHERE payment_id = $1""", (payment_id,))
             perf_markup = types.InlineKeyboardMarkup(row_width=5)
             perf_webapp = types.WebAppInfo(f"{url}/kino/{performance_id}")  # создаем webapp
             perf_but = types.KeyboardButton(text='Тот самый сеанс', web_app=perf_webapp)
@@ -575,18 +581,26 @@ def check_payment_status(payment_id, report=True):
                 payment_kino = response.json()
                 # print(payment_kino)
                 kino_add_payment_id = payment_kino['IdPayment']
-                with sqlite3.connect(db_path, timeout=15000) as data:
-                    curs = data.cursor()
-                    curs.execute("""UPDATE orders SET status = 1, kino_add_payment_id = ? WHERE payment_id == ?""",
-                                 (kino_add_payment_id, payment_id))
-                    performance_data = curs.execute("""SELECT * FROM performance WHERE performance_id == ?""",
-                                                    (performance_id,)).fetchone()
-                    fond_kino_id = curs.execute("""SELECT fond_kino_id FROM cinemas WHERE building_id == ?""",
-                                                (performance_data[2],)).fetchone()[0]
-                    show_data = curs.execute("""SELECT pu_number, name, id_procult FROM show WHERE show_id == ?""",
-                                             (performance_data[1],)).fetchone()
-                    is_fk_report_send = curs.execute("""SELECT report_sented FROM orders WHERE payment_id == ?""",
-                                                     (payment_id,)).fetchone()[0]
+                with psycopg2.connect(db_path) as data:
+                    with data.cursor() as curs:
+                        curs.execute("""UPDATE orders SET status = 1, kino_add_payment_id = $1 WHERE payment_id = $2""",
+                                     (kino_add_payment_id, payment_id))
+
+                        curs.execute("""SELECT * FROM performance WHERE performance_id = $1""",
+                                                        (performance_id,))
+                        performance_data = curs.fetchone()
+
+                        curs.execute("""SELECT fond_kino_id FROM cinemas WHERE building_id = $1""",
+                                                    (performance_data[2],))
+                        fond_kino_id = curs.fetchone()[0]
+
+                        curs.execute("""SELECT pu_number, name, id_procult FROM show WHERE show_id = $1""",
+                                                 (performance_data[1],))
+                        show_data = curs.fetchone()
+
+                        curs.execute("""SELECT report_sented FROM orders WHERE payment_id = $1""",
+                                                         (payment_id,))
+                        is_fk_report_send = curs.fetchone()[0]
             except TypeError:
                 bot.send_message(5254091301,
                                  f'!!!!Ошибка. Заказ оплачен, но оформить его правильно не вышло\n Я его пропускаю, вот данные клиента и заказа, свяжитесь с ним:order_id {order_data[0]}\nuser_id_tg {order_data[1]}\nperformance {order_data[3]}\nplace_id {order_data[4]}\nряд {order_data[11]}\nместо {order_data[12]}\npayment_id {order_data[6]}')
@@ -594,9 +608,9 @@ def check_payment_status(payment_id, report=True):
                 if report:
                     bot.send_message(1013689498,
                                      f'!!!!Ошибка. Заказ оплачен, но оформить его правильно не вышло\n Я его пропускаю, вот данные клиента и заказа, свяжитесь с ним:order_id {order_data[0]}\nuser_id_tg {order_data[1]}\nperformance {order_data[3]}\nplace_id {order_data[4]}\nряд {order_data[11]}\nместо {order_data[12]}\npayment_id {order_data[6]}')
-                with sqlite3.connect(db_path, timeout=15000) as data:
-                    curs = data.cursor()
-                    curs.execute("""UPDATE orders SET status = 4 WHERE payment_id == ?""", (payment_id,))
+                with psycopg2.connect(db_path) as data:
+                    with data.cursor() as curs:
+                        curs.execute("""UPDATE orders SET status = 4 WHERE payment_id = $1""", (payment_id,))
             except Exception as e:
                 logger.exception("Произошла ошибка")
                 bot.send_message(5254091301,
@@ -617,13 +631,13 @@ def check_payment_status(payment_id, report=True):
 
             rrn = payment.authorization_details.rrn
 
-            with sqlite3.connect(db_path, timeout=15000) as data:
-                curs = data.cursor()
-                curs.execute("""SELECT date, time, show_id FROM performance where performance_id = ?""",
-                             (performance_id,))
-                performance = curs.fetchone()
-                curs.execute("""SELECT id_procult FROM show where show_id = ?""", (performance[2],))
-                event_id = curs.fetchone()[0]
+            with psycopg2.connect(db_path) as data:
+                with data.cursor() as curs:
+                    curs.execute("""SELECT date, time, show_id FROM performance where performance_id = $1""",
+                                 (performance_id,))
+                    performance = curs.fetchone()
+                    curs.execute("""SELECT id_procult FROM show where show_id = $1""", (performance[2],))
+                    event_id = curs.fetchone()[0]
 
             date_start = performance[0]
             date_end = performance[1]
@@ -672,100 +686,103 @@ def check_payment_status(payment_id, report=True):
 
 
 def unblock_all(user_id, performance_id, place_id):
-    with sqlite3.connect(db_path, timeout=15000) as data:
-        curs = data.cursor()
-        if place_id == 'all':
-            # берем все брони у пользователя на этот сеанс
-            orders_to_close = curs.execute(
-                """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id == ? AND performance_id == ? AND status == 2;""",
-                (user_id, performance_id)).fetchall()
-        else:
-            # берем все брони кроме place_id который нам передали
-            orders_to_close = curs.execute(
-                """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id == ? AND performance_id == ? AND status == 2 AND place_id IS NOT ?;""",
-                (user_id, performance_id, place_id)).fetchall()
+    with psycopg2.connect(db_path) as data:
+        with data.cursor() as curs:
+            if place_id == 'all':
+                # берем все брони у пользователя на этот сеанс
+                curs.execute(
+                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = $1 AND performance_id = $2 AND status = $3;""",
+                    (user_id, performance_id))
+                orders_to_close = curs.fetchall()
+            else:
+                # берем все брони кроме place_id который нам передали
+                curs.execute(
+                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = $1 AND performance_id = $2 AND status = $3 AND place_id IS NOT $4;""",
+                    (user_id, performance_id, place_id))
+                orders_to_close = curs.fetchall()
 
-        # print('11111111', orders_to_close)
-        # проходимся по всем таким броням
-        for order in orders_to_close:
-            # print(order)
-            params = {
-                "sp": "WgA_SetOrderToNull",
-                "idOrder": order[3],
-                "df": "J",
-            }
-            for i in range(5):
-                try:
-                    response = requests.request("GET", url_kino_baza, params=params)
-                    break
-                except Exception as e:
-                    bot.send_message(5254091301,
-                                     f'!!!!Ошибка. Заказ unblock_all, но отменить не вышло {e}')
-                    logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
-                    time.sleep(7)
+            # print('11111111', orders_to_close)
+            # проходимся по всем таким броням
+            for order in orders_to_close:
+                # print(order)
+                params = {
+                    "sp": "WgA_SetOrderToNull",
+                    "idOrder": order[3],
+                    "df": "J",
+                }
+                for i in range(5):
+                    try:
+                        response = requests.request("GET", url_kino_baza, params=params)
+                        break
+                    except Exception as e:
+                        bot.send_message(5254091301,
+                                         f'!!!!Ошибка. Заказ unblock_all, но отменить не вышло {e}')
+                        logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
+                        time.sleep(7)
 
-            curs.execute(
-                """UPDATE orders SET status == 0 WHERE performance_id == ? AND place_id == ? AND buyer_id == ? AND user_id == ?""",
-                (order[0], order[1], order[2], user_id))
+                curs.execute(
+                    """UPDATE orders SET status == 0 WHERE performance_id = $1 AND place_id = $2 AND buyer_id = $3 AND user_id = $4""",
+                    (order[0], order[1], order[2], user_id))
 
 
 # check_payment_status("2ebeeb04-000f-5000-a000-109d870811c3")
 
 
 def unblock_5_min(status):
-    with sqlite3.connect(db_path, timeout=15000) as data:
-        curs = data.cursor()
-        # берем все брони где не создан заказ и прошло 5 мин
-        place_to_unblock = curs.execute(
-            """SELECT performance_id, place_id, buyer_id, payment_id, order_id FROM orders WHERE status == ? AND place_locked_time < ?;""",
-            (status, time.time() - 300,)).fetchall()
-        # print(time.time()-900)
-        # print('11111111', place_to_unblock)
-        # проходимся по всем таким броням
-        for order in place_to_unblock:
-            # print(order)
-            params = {
-                "sp": "WgA_SetOrderToNull",
-                "idOrder": order[4],
-                "df": "J",
-            }
-            for i in range(5):
-                try:
-                    response = requests.request("GET", url_kino_baza, params=params)
-                    logger.info(decode_unicode(response.text))
-                    break
-                except Exception as e:
-                    bot.send_message(5254091301,
-                                     f'!!!!Ошибка. Заказ unblock_5_min, но отменить не вышло {e}')
-                    logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
-                    time.sleep(7)
-
-            if status == 3:
-                payment_id = order[3]
-
-                Configuration.account_id = int(youkassa_shop_id)
-                Configuration.secret_key = youkassa_secret_key
-
-                try:
-                    Payment.cancel(payment_id)
+    with psycopg2.connect(db_path) as data:
+        with data.cursor() as curs:
+            # берем все брони где не создан заказ и прошло 5 мин
+            curs.execute(
+                """SELECT performance_id, place_id, buyer_id, payment_id, order_id FROM orders WHERE status = $1 AND place_locked_time < $2;""",
+                (status, time.time() - 300,))
+            place_to_unblock = curs.fetchall()
+            # print(time.time()-900)
+            # print('11111111', place_to_unblock)
+            # проходимся по всем таким броням
+            for order in place_to_unblock:
+                # print(order)
+                params = {
+                    "sp": "WgA_SetOrderToNull",
+                    "idOrder": order[4],
+                    "df": "J",
+                }
+                for i in range(5):
                     try:
-                        canceled = check_payment_status(payment_id)
-                        if canceled != "canceled":
-                            return
+                        response = requests.request("GET", url_kino_baza, params=params)
+                        logger.info(decode_unicode(response.text))
+                        break
+                    except Exception as e:
+                        bot.send_message(5254091301,
+                                         f'!!!!Ошибка. Заказ unblock_5_min, но отменить не вышло {e}')
+                        logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
+                        time.sleep(7)
+
+                if status == 3:
+                    payment_id = order[3]
+
+                    Configuration.account_id = int(youkassa_shop_id)
+                    Configuration.secret_key = youkassa_secret_key
+
+                    try:
+                        Payment.cancel(payment_id)
+                        try:
+                            canceled = check_payment_status(payment_id)
+                            if canceled != "canceled":
+                                return
+                        except Exception as e:
+                            logger.exception(
+                                f"Произошла ошибка в вызове функций по обновлению всей базы unblock_5_min check_payment_status\n{e}")
+                            bot.send_message(5254091301,
+                                             f'''!!!!!Ошибка в запросе юкассу о проверке статуса заказа\n{payment_id}''')
                     except Exception as e:
                         logger.exception(
-                            f"Произошла ошибка в вызове функций по обновлению всей базы unblock_5_min check_payment_status\n{e}")
+                            f"Произошла ошибка в вызове функций по обновлению всей базы unblock_5_min Payment.cancel\n{e}")
                         bot.send_message(5254091301,
                                          f'''!!!!!Ошибка в запросе юкассу о проверке статуса заказа\n{payment_id}''')
-                except Exception as e:
-                    logger.exception(
-                        f"Произошла ошибка в вызове функций по обновлению всей базы unblock_5_min Payment.cancel\n{e}")
-                    bot.send_message(5254091301,
-                                     f'''!!!!!Ошибка в запросе юкассу о проверке статуса заказа\n{payment_id}''')
 
-            curs.execute(
-                """UPDATE orders SET status == 0 WHERE order_id == ?""",
-                (order[4],))
+                curs.execute(
+                    """UPDATE orders SET status = 0 WHERE order_id = $1""",
+                    (order[4],))
 
 
 def decode_unicode(data):
@@ -829,14 +846,14 @@ def decode_unicode(data):
 #     # print(response.url)
 #     sber = response.json()
 #     # print(sber)
-#     with sqlite3.connect(db_path, timeout=15000) as data:
-#         curs = data.cursor()
-#         performance_data = [9377428, 43037535, 1009, 'Россия б/з', '2023-05-21', '17:25', 250, 250, 418, 'Россия', 10]
-#         fond_kino_id = \
-#             curs.execute("""SELECT fond_kino_id FROM cinemas WHERE building_id == ?""",
-#                          (performance_data[2],)).fetchone()[
-#                 0]
-#         show_data = [111006223, 'Хитровка. Знак четырёх', 3144867]
+#     with psycopg2.connect(db_path) as data:
+#         with data.cursor() as curs:
+#             performance_data = [9377428, 43037535, 1009, 'Россия б/з', '2023-05-21', '17:25', 250, 250, 418, 'Россия', 10]
+#             fond_kino_id = \
+#                 curs.execute("""SELECT fond_kino_id FROM cinemas WHERE building_id = $1""",
+#                              (performance_data[2],)).fetchone()[
+#                     0]
+#             show_data = [111006223, 'Хитровка. Знак четырёх', 3144867]
 #
 #     ##отправка в министерство отчета о продаже
 #     import xml.etree.ElementTree as ET
