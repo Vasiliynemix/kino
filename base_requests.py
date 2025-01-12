@@ -487,7 +487,7 @@ def send_xml_to_ekinobilet(
             # print(200)
             with psycopg2.connect(db_path) as data:
                 with data.cursor() as curs:
-                    curs.execute("""UPDATE orders SET report_sented = True WHERE payment_id = %s""", (payment_id,))
+                    curs.execute("""UPDATE orders SET report_sented = 1 WHERE payment_id = %s""", (payment_id,))
 
         else:
             bot.send_message(5254091301,
