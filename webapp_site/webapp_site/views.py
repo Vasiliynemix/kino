@@ -205,15 +205,15 @@ def unblock_all(user_id, performance_id, place_id):
                 logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
                 time.sleep(7)
 
-    with psycopg2.connect(db_path) as data:
-        with data.cursor() as curs:
-            try:
-                curs.execute(
-                    """UPDATE orders SET status = 2 WHERE performance_id = %s AND place_id = %s AND buyer_id = %s AND user_id = %s""",
-                    (order[0], order[1], order[2], user_id))
-            except Exception as e:
-                bot.send_message(5254091301,
-                                 f'!!!!Ошибка UPDATE orders SET status. Заказ unblock_all, но отменить не вышло {e}: {order=}')
+        with psycopg2.connect(db_path) as data:
+            with data.cursor() as curs:
+                try:
+                    curs.execute(
+                        """UPDATE orders SET status = 0 WHERE performance_id = %s AND place_id = %s AND buyer_id = %s AND user_id = %s""",
+                        (order[0], order[1], order[2], user_id))
+                except Exception as e:
+                    bot.send_message(5254091301,
+                                     f'!!!!Ошибка UPDATE orders SET status. Заказ unblock_all, но отменить не вышло {e}: {order=}')
 
 
 def payment_button_pressed(request, user_id, performance_id, place_id, price, order_id):
