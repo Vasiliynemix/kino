@@ -185,25 +185,25 @@ def unblock_all(user_id, performance_id, place_id):
                     (user_id, performance_id, place_id))
                 orders_to_close = curs.fetchall()
 
-            # print('11111111', orders_to_close)
-            # проходимся по всем таким броням
-            for order in orders_to_close:
-                logger.info(order)
-                params = {
-                    "sp": "WgA_SetOrderToNull",
-                    "idOrder": order[3],
-                    "df": "J",
-                }
-                for i in range(5):
-                    try:
-                        response = requests.request("GET", url_kino_baza, params=params)
-                        logger.info(decode_unicode(response.text))
-                        break
-                    except Exception as e:
-                        bot.send_message(5254091301,
-                                         f'!!!!Ошибка. Заказ unblock_all, но отменить не вышло {e}')
-                        logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
-                        time.sleep(7)
+    # print('11111111', orders_to_close)
+    # проходимся по всем таким броням
+    for order in orders_to_close:
+        logger.info(order)
+        params = {
+            "sp": "WgA_SetOrderToNull",
+            "idOrder": order[3],
+            "df": "J",
+        }
+        for i in range(5):
+            try:
+                response = requests.request("GET", url_kino_baza, params=params)
+                logger.info(decode_unicode(response.text))
+                break
+            except Exception as e:
+                bot.send_message(5254091301,
+                                 f'!!!!Ошибка. Заказ unblock_all, но отменить не вышло {e}')
+                logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
+                time.sleep(7)
 
     with psycopg2.connect(db_path) as data:
         with data.cursor() as curs:
