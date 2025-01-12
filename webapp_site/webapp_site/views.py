@@ -211,7 +211,7 @@ def unblock_all(user_id, performance_id, place_id):
                         (order[0], order[1], order[2], user_id))
                 except Exception as e:
                     bot.send_message(5254091301,
-                                     f'!!!!Ошибка UPDATE orders SET status. Заказ unblock_all, но отменить не вышло {e}')
+                                     f'!!!!Ошибка UPDATE orders SET status. Заказ unblock_all, но отменить не вышло {e}: {order=}')
 
 
 def payment_button_pressed(request, user_id, performance_id, place_id, price, order_id):

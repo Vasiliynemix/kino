@@ -142,19 +142,19 @@ def send_movies(callback, date):
                     perf_markup = types.InlineKeyboardMarkup(row_width=5)
                     for perf in performances:
                         perf_webapp = types.WebAppInfo(f"{url_server}/kino/{perf[0]}")  # создаем webappinfo - формат хранения url
-                        perf_but = types.KeyboardButton(text=f'{perf[9]} {perf[5]}', web_app=perf_webapp)  # создаем кнопку типа webapp
+                        perf_but = types.KeyboardButton(text=f'{perf[3]} {perf[9]}', web_app=perf_webapp)  # создаем кнопку типа webapp
                         perf_markup.add(perf_but)
                     # отсылаем фильм с сеансами на выбранную дату
                     # если есть фото
                     somthing_sended = True
-                    if show[5] is not None:
-                        if show[6] != 0:
-                            text1 = f'{show[1]}\nКинопоиск {round(show[6], 1)}\n\n{show[4]}'
+                    if show[4] is not None:
+                        if show[5] != 0:
+                            text1 = f'{show[1]}\nКинопоиск {round(show[5], 1)}\n\n{show[3]}'
                         else:
-                            text1 = f'{show[1]}\n\n{show[4]}'
+                            text1 = f'{show[1]}\n\n{show[3]}'
                         text = util.smart_split(text1, 1024)[0]
                         try:
-                            bot.send_photo(callback.from_user.id, photo=show[5], caption=text, reply_markup=perf_markup)
+                            bot.send_photo(callback.from_user.id, photo=show[4], caption=text, reply_markup=perf_markup)
                         except telebot.apihelper.ApiTelegramException as e:
                             try:
                                 bot.send_message(callback.from_user.id, {show[1]}, reply_markup=perf_markup)
