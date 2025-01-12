@@ -737,7 +737,7 @@ def unblock_5_min(status):
             # берем все брони где не создан заказ и прошло 5 мин
             curs.execute(
                 """SELECT performance_id, place_id, buyer_id, payment_id, order_id FROM orders WHERE status = 2 AND place_locked_time < %s;""",
-                (status, time.time() - 300,))
+                (time.time() - 300,))
             place_to_unblock = curs.fetchall()
 
     # print(time.time()-900)
