@@ -739,55 +739,33 @@ def unblock_5_min(status):
                 """SELECT performance_id, place_id, buyer_id, payment_id, order_id FROM orders WHERE status = %s AND place_locked_time < %s;""",
                 (status, time.time() - 300,))
             place_to_unblock = curs.fetchall()
-            # print(time.time()-900)
-            # print('11111111', place_to_unblock)
-            # проходимся по всем таким броням
-            for order in place_to_unblock:
-                # print(order)
-                params = {
-                    "sp": "WgA_SetOrderToNull",
-                    "idOrder": order[4],
-                    "df": "J",
-                }
-                for i in range(5):
-                    try:
-                        response = requests.request("GET", url_kino_baza, params=params)
-                        logger.info(decode_unicode(response.text))
-                        break
-                    except Exception as e:
-                        bot.send_message(5254091301,
-                                         f'!!!!Ошибка. Заказ unblock_5_min, но отменить не вышло {e}')
-                        logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
-                        time.sleep(7)
 
-                if status == 3:
-                    payment_id = order[3]
+    # print(time.time()-900)
+    # print('11111111', place_to_unblock)
+    # проходимся по всем таким броням
+    for order in place_to_unblock:
+        # print(order)
+        params = {
+            "sp": "WgA_SetOrderToNull",
+            "idOrder": order[4],
+            "df": "J",
+        }
+        for i in range(5):
+            try:
+                response = requests.request("GET", url_kino_baza, params=params)
+                logger.info(decode_unicode(response.text))
+                break
+            except Exception as e:
+                bot.send_message(5254091301,
+                                 f'!!!!Ошибка. Заказ unblock_5_min, но отменить не вышло {e}')
+                logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
+                time.sleep(7)
 
-                    Configuration.account_id = int(youkassa_shop_id)
-                    Configuration.secret_key = youkassa_secret_key
-
-                    try:
-                        Payment.cancel(payment_id)
-                        try:
-                            canceled = check_payment_status(payment_id)
-                            if canceled != "canceled":
-                                return
-                        except Exception as e:
-                            logger.exception(
-                                f"Произошла ошибка в вызове функций по обновлению всей базы unblock_5_min check_payment_status\n{e}")
-                            bot.send_message(5254091301,
-                                             f'''!!!!!Ошибка в запросе юкассу о проверке статуса заказа\n{payment_id}''')
-                    except Exception as e:
-                        logger.exception(
-                            f"Произошла ошибка в вызове функций по обновлению всей базы unblock_5_min Payment.cancel\n{e}")
-                        bot.send_message(5254091301,
-                                         f'''!!!!!Ошибка в запросе юкассу о проверке статуса заказа\n{payment_id}''')
-
-    with psycopg2.connect(db_path) as data:
-        with data.cursor() as curs:
-            curs.execute(
-                """UPDATE orders SET status = 0 WHERE order_id = %s""",
-                (order[4],))
+        with psycopg2.connect(db_path) as data:
+            with data.cursor() as curs:
+                curs.execute(
+                    """UPDATE orders SET status = 0 WHERE order_id = %s""",
+                    (order[4],))
 
 
 def decode_unicode(data):
