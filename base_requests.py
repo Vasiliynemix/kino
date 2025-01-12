@@ -783,9 +783,11 @@ def unblock_5_min(status):
                         bot.send_message(5254091301,
                                          f'''!!!!!Ошибка в запросе юкассу о проверке статуса заказа\n{payment_id}''')
 
-                curs.execute(
-                    """UPDATE orders SET status = 0 WHERE order_id = %s""",
-                    (order[4],))
+    with psycopg2.connect(db_path) as data:
+        with data.cursor() as curs:
+            curs.execute(
+                """UPDATE orders SET status = 0 WHERE order_id = %s""",
+                (order[4],))
 
 
 def decode_unicode(data):
