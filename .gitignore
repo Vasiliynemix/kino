@@ -140,3 +140,5 @@ venv.bak/v
 .mypy_cache/
 .dmypy.json
 dmypy.jsona
+
+xml_files/
