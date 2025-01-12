@@ -495,7 +495,7 @@ def send_xml_to_ekinobilet(
     except Exception as e:
         logger.exception("Произошла ошибка")
         bot.send_message(5254091301,
-                         f'!!!!Ошибка. Заказ оплачен, но в министерство правильно не отправлен\n{e} order_id {order_id} файл {xml_file_name}')
+                         f'!!!!Ошибка. Заказ оплачен, но в министерство правильно не отправлен\n{e} order_id {order_id} файл')
 
 
 # проверяем статус переданного платежа, если платеж прошел, то ставим статус ок, если нет, то отменяем, в противном случае ничего не делаем
@@ -724,7 +724,7 @@ def unblock_all(user_id, performance_id, place_id):
                         time.sleep(7)
 
                 curs.execute(
-                    """UPDATE orders SET status == 0 WHERE performance_id = %s AND place_id = %s AND buyer_id = %s AND user_id = %s""",
+                    """UPDATE orders SET status = 0 WHERE performance_id = %s AND place_id = %s AND buyer_id = %s AND user_id = %s""",
                     (order[0], order[1], order[2], user_id))
 
 
