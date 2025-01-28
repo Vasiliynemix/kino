@@ -562,6 +562,7 @@ def check_payment_status(payment_id, report=True):
         elif payment_status == 'succeeded':
             unblock_all(user_id, performance_id, place_id)
             is_succeeded = True
+            is_fk_report_send = True
             try:
                 try:
                     bot.send_message(user_id,
@@ -582,7 +583,6 @@ def check_payment_status(payment_id, report=True):
                     except Exception as e:
                         time.sleep(7)
                 payment_kino = response.json()
-                # print(payment_kino)
                 kino_add_payment_id = payment_kino['IdPayment']
                 with psycopg2.connect(db_path) as data:
                     with data.cursor() as curs:
