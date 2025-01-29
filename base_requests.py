@@ -456,7 +456,7 @@ def send_xml_to_ekinobilet(
             file.write(xml_data)
 
         try:
-            bot.send_message(5254091301, f'xml_file_name\n{xml_file_name}')
+            bot.send_message(5254091301, f'xml_file_name {order_id}\n{xml_file_name}')
             bot.send_document(5254091301, open(xml_file_name, 'rb'))
         except Exception:
             pass
