@@ -132,9 +132,9 @@ def set_data(order_id, kino_add_payment_id):
                 curs.execute("""SELECT pu_number, name, id_procult FROM show WHERE show_id = %s""",
                                          (performance_data[1],))
                 show_data = curs.fetchone()
-    except TypeError:
-        bot.send_message(5254091301,
-                         f'!!!!Ошибка. Заказ оплачен, но оформить его правильно не вышло\n Я его пропускаю, вот данные клиента и заказа, свяжитесь с ним:order_id {order_data[0]}\nuser_id_tg {order_data[1]}\nperformance {order_data[3]}\nplace_id {order_data[4]}\nряд {order_data[11]}\nместо {order_data[12]}\npayment_id {order_data[6]}')
+    # except TypeError:
+    #     bot.send_message(5254091301,
+    #                      f'!!!!Ошибка. Заказ оплачен, но оформить его правильно не вышло\n Я его пропускаю, вот данные клиента и заказа, свяжитесь с ним:order_id {order_data[0]}\nuser_id_tg {order_data[1]}\nperformance {order_data[3]}\nplace_id {order_data[4]}\nряд {order_data[11]}\nместо {order_data[12]}\npayment_id {order_data[6]}')
     except Exception as e:
         logger.exception("Произошла ошибка")
         bot.send_message(5254091301, text=f"Произошла ошибка {e}")
