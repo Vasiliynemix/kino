@@ -175,6 +175,7 @@ def logs_text(message):
 
 @bot.message_handler(content_types=['text', 'comands'], chat_types=['private'], commands=['xml'])
 def xml_text(message):
+    print("xml_text клик")
     if message.from_user.id != 5254091301:
         return
 
