@@ -184,7 +184,7 @@ def xml_text(message):
         kino_add_payment_id = int(message.text.split(" ")[2])
         set_data(order_id, kino_add_payment_id)
     except Exception as e:
-        pass
+        logger.exception(f"Произошла ошибка {e}")
 
 
 
