@@ -27,7 +27,7 @@ DEBUG = False
 
 ALLOWED_HOSTS = ['*']
 
-CSRF_TRUSTED_ORIGINS = ["https://vz-nemix-2313.ru", "https://verified-greatly-bonefish.ngrok-free.app"]
+CSRF_TRUSTED_ORIGINS = ["https://vz-nemix-2313.ru", "https://epic-man-obviously.ngrok-free.app"]
 
 
 # Application definition
