@@ -20,52 +20,60 @@ from pkg.log import CustomLogger
 
 CustomLogger().add_logger(info_log_file, __name__)
 
+
 def film_update_main():
     i = 1
     while True:
         try:
             if i % 2 == 0 or i == 1:
-                all_show_request()
+                safe_execute(all_show_request, "all_show_request")
 
-            get_show_info()
+            safe_execute(get_show_info, "get_show_info")
 
             if i % 10 == 0 or i == 1:
-                what_show_can_be_sell_pushkin_card()
+                safe_execute(what_show_can_be_sell_pushkin_card, "what_show_can_be_sell_pushkin_card")
 
-            get_kinopoisk_info()
+            safe_execute(get_kinopoisk_info, "get_kinopoisk_info")
+
             if i % 4 == 0 or i == 1:
-                all_performances_request()
+                safe_execute(all_performances_request, "all_performances_request")
 
-            unblock_5_min(2)  # разблокируем все где 5 мин заблочено и не куплено
+            safe_execute(unblock_5_min, "unblock_5_min")
 
-            # unblock_5_min(3)  # разблокируем все где 5 мин есть ссылка, но не оплочено
-
-            # проверяем всех кто должен оплатить
-            with psycopg2.connect(db_path) as conn:
-                with conn.cursor() as curs:
-                    curs.execute("""SELECT payment_id FROM orders WHERE status = 3;""")
-                    orders = curs.fetchall()
-
-            for order in orders:
-                try:
-                    check_payment_status(order[0])
-                except Exception as e:
-                    logger.exception(f"Произошла ошибка в вызове функций по обновлению всей базы film_update_main check_payment_status\n{e}")
-                    bot.send_message(5254091301,
-                                     f'Ошибка в вызове функций по обновлению всей базы film_update_main check_payment_status\n{e}')
-            # with open('enviroments/kino/film_update.txt', 'a') as file:
-            #               file.write(f"")
-            # print(f'i = {i}\nall_show_request {round(t2-t1, 3)}\nget_show_info {round(t3-t2, 3)}\nwhat_show_can_be_sell_pushkin_card {round(t4-t3, 3)}\nget_kinopoisk_info {round(t5-t4, 3)}\nall_performances_request {round(t6-t5, 3)}\nunblock_5_min {round(t7-t6, 3)}\ncheck_payment_status {round(t8-t7, 3)}\nвсе {round(t8-t1, 3)}')
-            # with psycopg2.connect(db_path) as conn:
-            #     with conn.cursor() as curs:
-            #         curs.execute("""UPDATE show SET pushkin_card = 1""")
+            # Проверяем статусы платежей
+            process_orders()
 
         except Exception as e:
-            logger.exception("Произошла ошибка")
-            bot.send_message(5254091301, f'Ошибка в вызове функций по обновлению всей базы film_update_main\n{e}')
+            logger.exception("Произошла ошибка в film_update_main")
+            bot.send_message(5254091301, f'Ошибка в film_update_main\n{e}')
+
         finally:
-            i += 1
+            i = 1 if i > 10000 else i + 1  # Сброс счётчика
             time.sleep(30)
+
+
+def safe_execute(func, func_name):
+    """Безопасно выполняет функцию и логирует ошибки."""
+    try:
+        func()
+    except Exception as e:
+        logger.exception(f"Ошибка в {func_name}")
+        bot.send_message(5254091301, f'Ошибка в {func_name}\n{e}')
+
+
+def process_orders():
+    """Обрабатывает заказы с оплатой."""
+    try:
+        with psycopg2.connect(db_path) as conn:
+            with conn.cursor() as curs:
+                curs.execute("""SELECT payment_id FROM orders WHERE status = 3;""")
+                orders = curs.fetchall()
+
+        for order in orders:
+            safe_execute(lambda: check_payment_status(order[0]), "check_payment_status")
+    except Exception as e:
+        logger.exception("Ошибка при получении заказов")
+        bot.send_message(5254091301, f'Ошибка при получении заказов\n{e}')
 
 
 def all_show_request():
@@ -731,7 +739,7 @@ def unblock_all(user_id, performance_id, place_id):
 # check_payment_status("2ebeeb04-000f-5000-a000-109d870811c3")
 
 
-def unblock_5_min(status):
+def unblock_5_min():
     with psycopg2.connect(db_path) as data:
         with data.cursor() as curs:
             # берем все брони где не создан заказ и прошло 5 мин
