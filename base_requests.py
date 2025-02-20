@@ -24,7 +24,6 @@ CustomLogger().add_logger(info_log_file, __name__)
 def film_update_main():
     i = 1
     while True:
-        logger.info(f"film_update_main итерация {i}")
         try:
             if i % 2 == 0 or i == 1:
                 safe_execute(all_show_request, "all_show_request")
