@@ -1,7 +1,0 @@
-version: "2"
-authtoken: 2biI6hg4FrsHFQ4Qh8dGmRVUyHJ_2x5qHuWCCpgyjF5BhnDB2
-tunnels:
-  bot:
-    proto: http
-    addr: 8080
-    hostname: factual-warthog-witty.ngrok-free.app

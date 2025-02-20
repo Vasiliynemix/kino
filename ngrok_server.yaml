@@ -1,7 +1,0 @@
-version: "2"
-authtoken: 2izZRRzaET7KOSxN5rf6t5zmrwc_2NYJnKMgrqXb7t3hEeooJ
-tunnels:
-  server:
-    proto: http
-    addr: 8081
-    hostname: verified-greatly-bonefish.ngrok-free.app

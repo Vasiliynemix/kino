@@ -24,6 +24,7 @@ CustomLogger().add_logger(info_log_file, __name__)
 def film_update_main():
     i = 1
     while True:
+        logger.info(f"film_update_main итерация {i}")
         try:
             if i % 2 == 0 or i == 1:
                 safe_execute(all_show_request, "all_show_request")
@@ -49,7 +50,7 @@ def film_update_main():
 
         finally:
             i = 1 if i > 10000 else i + 1  # Сброс счётчика
-            time.sleep(30)
+            time.sleep(5)
 
 
 def safe_execute(func, func_name):
@@ -141,6 +142,7 @@ def get_show_info():
                             kinopoisk_id = None
                         curs.execute("""UPDATE show SET kinopoisk_id = %s WHERE show_id = %s""",
                                      (kinopoisk_id, show_id))
+                        conn.commit()
                     else:
                         pass
                         # bot.send_message(5254091301, f'Ошибка по запросу Wga_GetShowInfo\nВ ответ на запрос возвращается код {response.status_code}')
