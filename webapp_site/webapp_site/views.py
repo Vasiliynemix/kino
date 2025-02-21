@@ -175,13 +175,13 @@ def unblock_all(user_id, performance_id, place_id):
             if place_id == 'all':
                 # берем все брони у пользователя на этот сеанс
                 curs.execute(
-                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = %s AND performance_id = %s AND status = 2;""",
+                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = %s AND status = 2;""",
                     (user_id, performance_id))
                 orders_to_close = curs.fetchall()
             else:
                 # берем все брони кроме place_id который нам передали
                 curs.execute(
-                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = %s AND performance_id = %s AND status = 2 AND place_id != %s;""",
+                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = %s AND status = 2 AND place_id != %s;""",
                     (user_id, performance_id, place_id))
                 orders_to_close = curs.fetchall()
 
@@ -292,12 +292,13 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
     locked_place = response.json()
     # print(locked_place)
     # записываем в базу как заказ со статусом 1
-    place_locked_time = time.time()
+    place_locked_time = int(time.time())
+    uuid_order = str(uuid.uuid4())
     with psycopg2.connect(db_path) as data:
         with data.cursor() as curs:
             curs.execute(
-                """INSERT INTO orders (user_id, buyer_id, performance_id, place_id, place_locked_time, status, place, row) VALUES (%s, %s, %s, %s, %s, 2, %s, %s);""",
-                (user_id, buyer_id, performance_id, place_id, place_locked_time, place_place, place_row))
+                """INSERT INTO orders (user_id, buyer_id, performance_id, place_id, place_locked_time, status, place, row, uuid_order) VALUES (%s, %s, %s, %s, %s, 2, %s, %s, %s);""",
+                (user_id, buyer_id, performance_id, place_id, place_locked_time, place_place, place_row, uuid_order))
     try:
         if locked_place['Price']:  # если место свободно
             # print(locked_place, 'open') %s
@@ -329,8 +330,8 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
                 with psycopg2.connect(db_path) as data:
                     with data.cursor() as curs:
                         curs.execute(
-                            """UPDATE orders SET price = %s, order_id = %s WHERE place_locked_time = %s AND performance_id = %s AND place_id = %s AND buyer_id = %s AND user_id = %s AND status = 2;""",
-                            (price, order_id, place_locked_time, performance_id, place_id, buyer_id, user_id))
+                            """UPDATE orders SET price = %s, order_id = %s WHERE uuid_order = %s AND status = 2;""",
+                            (price, order_id, uuid_order))
             except Exception as e:
                 unblock_all(user_id, performance_id, "all")
                 return render(request, 'finish.html')
