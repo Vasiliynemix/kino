@@ -703,14 +703,14 @@ def unblock_all(user_id, performance_id, place_id):
             if place_id == 'all':
                 # берем все брони у пользователя на этот сеанс
                 curs.execute(
-                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = %s AND performance_id = %s AND status = 2;""",
-                    (user_id, performance_id))
+                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = %s AND status = 2;""",
+                    (user_id,))
                 orders_to_close = curs.fetchall()
             else:
                 # берем все брони кроме place_id который нам передали
                 curs.execute(
-                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = %s AND performance_id = %s AND status = 2 AND place_id != %s;""",
-                    (user_id, performance_id, place_id))
+                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = %s AND status = 2 AND place_id != %s;""",
+                    (user_id, place_id))
                 orders_to_close = curs.fetchall()
 
             # print('11111111', orders_to_close)
