@@ -20,20 +20,20 @@ with psycopg2.connect(db_path) as pg_conn:
         );
         """)
 
-        pg_cursor.execute("""ALTER TABLE orders ADD COLUMN uuid_order TEXT;""")
-
-        pg_cursor.execute("""
-                    UPDATE orders
-                    SET uuid_order = gen_random_uuid();
-                """)
-
-        # Делаем поле обязательным
-        pg_cursor.execute("""
-                    ALTER TABLE orders
-                    ALTER COLUMN uuid_order SET NOT NULL;
-                """)
-        pg_cursor.execute("ALTER TABLE orders ALTER COLUMN uuid_order SET NOT NULL;")
-        pg_cursor.execute("""ALTER TABLE orders ADD CONSTRAINT orders_uuid_order_unique UNIQUE (uuid_order);""")
+        # pg_cursor.execute("""ALTER TABLE orders ADD COLUMN uuid_order TEXT;""")
+        #
+        # pg_cursor.execute("""
+        #             UPDATE orders
+        #             SET uuid_order = gen_random_uuid();
+        #         """)
+        #
+        # # Делаем поле обязательным
+        # pg_cursor.execute("""
+        #             ALTER TABLE orders
+        #             ALTER COLUMN uuid_order SET NOT NULL;
+        #         """)
+        # pg_cursor.execute("ALTER TABLE orders ALTER COLUMN uuid_order SET NOT NULL;")
+        # pg_cursor.execute("""ALTER TABLE orders ADD CONSTRAINT orders_uuid_order_unique UNIQUE (uuid_order);""")
 
         pg_cursor.execute("""
         CREATE TABLE IF NOT EXISTS orders (
