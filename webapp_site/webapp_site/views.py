@@ -276,14 +276,14 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
                 curs.execute("""SELECT buyer_id FROM users WHERE user_id = %s;""", (user_id,))
                 buyer_id = curs.fetchone()[0]
             except TypeError:
-                buyer_id = 998277
+                buyer_id = 2024
 
     # print(price, place_place, place_row, place_id, buyer_id)
     params = {
         "sp": "WgA_LockPlace",
         "IdPerformance": performance_id,
         "IdPlace": int(place_id),
-        "IdClient": 2024,
+        "IdClient": int(buyer_id),
         "IdPriceCategory": 17198,
         "df": "J"
     }
@@ -306,7 +306,7 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
             # регистрируем заказ
             params = {
                 "sp": "WgA_CreateMultyOrder",
-                "IdClient": 2024,
+                "IdClient": int(buyer_id),
                 "df": "J"}
 
             response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params)
