@@ -12,6 +12,24 @@ sqlite_cursor = sqlite_conn.cursor()
 with psycopg2.connect(db_path) as pg_conn:
     with pg_conn.cursor() as pg_cursor:
         # Создание таблиц в PostgreSQL
+        pg_cursor.execute("""ALTER TABLE orders ADD COLUMN payment_msg_id BIGINT""")
+
+        pg_cursor.execute("""
+            WITH latest_orders AS (
+                SELECT DISTINCT ON (user_id, performance_id) order_id
+                FROM orders
+                WHERE place_locked_time IS NOT NULL
+                ORDER BY user_id, performance_id, place_locked_time DESC
+            )
+            DELETE FROM orders
+            WHERE order_id NOT IN (SELECT order_id FROM latest_orders);
+        """)
+
+        pg_cursor.execute("""
+            ALTER TABLE orders
+            ADD CONSTRAINT unique_user_performance UNIQUE (user_id, performance_id);
+        """)
+
         pg_cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id BIGINT PRIMARY KEY,

@@ -19,6 +19,7 @@ from pkg.log import CustomLogger
 from .forms import MyForm
 import time, requests, sys
 import json
+
 load_dotenv()
 
 IS_PROD = os.getenv("IS_PROD")
@@ -68,7 +69,9 @@ def process_payment(request):
             # Выполняем логику платежа и заказа
             with psycopg2.connect(db_path) as data:
                 with data.cursor() as curs:
-                    curs.execute("""SELECT payment_id, payment_link, user_id, price, row, place FROM orders WHERE order_id = %s""", (order_id,))
+                    curs.execute(
+                        """SELECT payment_id, payment_link, user_id, price, row, place FROM orders WHERE order_id = %s""",
+                        (order_id,))
                     order = curs.fetchone()
                     if order is None:
                         return JsonResponse({"status": "error", "message": "Order not found"}, status=404)
@@ -78,12 +81,16 @@ def process_payment(request):
                     row = order[4]
                     place = order[5]
 
-                    bot.send_message(
+                    msg = bot.send_message(
                         user_id,
                         f"<b>Заказ №{order_id}.\nЦена: {price} р.\nРяд: {row}\nМесто: {place}</b>",
-                        reply_markup=telebot.types.InlineKeyboardMarkup([[telebot.types.InlineKeyboardButton("Оплатить по Пушкинской карте", url=payment_link)]]),
+                        reply_markup=telebot.types.InlineKeyboardMarkup(
+                            [[telebot.types.InlineKeyboardButton("Оплатить по Пушкинской карте", url=payment_link)]]),
                         parse_mode='HTML',
                     )
+                    curs.execute(
+                    """UPDATE orders SET payment_msg_id = %s WHERE order_id = %s""",
+                    (msg.message_id, order_id,))
 
             return JsonResponse({"status": "success"})
 
@@ -91,10 +98,6 @@ def process_payment(request):
             return JsonResponse({"status": "error", "message": str(e)}, status=500)
 
 
-# обработать все потенциальные ошибки
-
-# обратить внимание при норм тестах
-# формат цены, чтоб не вышло что мне прислали с копейками и из-за этого я плохую сумму пользователю послал, я же в копейках шлю
 def finishpayment(request, order_id):
     try:
         with psycopg2.connect(db_path) as data:
@@ -136,7 +139,7 @@ def finishpayment(request, order_id):
             """, content_type="text/html")
 
 
-def kino(request, performance_id):
+def kino(request, performance_id, tg_id):
     try:
         # print(request)
         if request.method == 'POST':  # при нажатии на кнопку
@@ -148,73 +151,31 @@ def kino(request, performance_id):
                 state, price, place_place, place_row, place_id, order_id = request.POST['chair_but'].split(',')
 
                 if state == 'back':  # если нажал назад, разблокируем все его места
-                    unblock_all(user_id, performance_id, 'all')
+                    unblock_performance(user_id, performance_id)
                     seatMap = create_list_of_buttons(performance_id)
                     form = MyForm()
                     return render(request, 'index.html',
-                                  {'form': form, 'seatMap': seatMap, 'down_text': 'Веберите 1 место', 'is_new_data': True})
+                                  {'form': form, 'seatMap': seatMap, 'down_text': 'Выберите 1 место',
+                                   'is_new_data': True})
                 elif state == 'pay':  # если нажал оплатить
                     ret = payment_button_pressed(request, user_id, performance_id, place_id, price, order_id)
-                    unblock_all(user_id, performance_id, 'all')
                     return ret
                 elif state == 'choose_place':  # если выбрал место
                     ret = cheir_choosed(request, user_id, performance_id, place_id, price, order_id, form)
                     return ret
         else:  # при первом обращении
+            # Если уже куплен есть бронь на сеанс, то сразу кнопка оплатить
+            if check_user_performance(tg_id, performance_id):
+                ret = cheir_choosed_from_main(request, tg_id, performance_id)
+                return ret
+
+            # ret = payment_button_pressed(request, user_id, performance_id, place_id, price, order_id)
             seatMap = create_list_of_buttons(performance_id)
             form = MyForm()
             return render(request, 'index.html',
-                          {'form': form, 'seatMap': seatMap, 'down_text': 'Веберите 1 место', 'is_new_data': True})
+                          {'form': form, 'seatMap': seatMap, 'down_text': 'Выберите 1 место', 'is_new_data': True})
     except Exception:
         logger.exception("-")
-
-
-def unblock_all(user_id, performance_id, place_id):
-    with psycopg2.connect(db_path) as data:
-        with data.cursor() as curs:
-            if place_id == 'all':
-                # берем все брони у пользователя на этот сеанс
-                curs.execute(
-                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = %s AND status = 2;""",
-                    (user_id,))
-                orders_to_close = curs.fetchall()
-            else:
-                # берем все брони кроме place_id который нам передали
-                curs.execute(
-                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = %s AND status = 2 AND place_id != %s;""",
-                    (user_id, place_id))
-                orders_to_close = curs.fetchall()
-
-    # print('11111111', orders_to_close)
-    # проходимся по всем таким броням
-    logger.info(orders_to_close)
-    for order in orders_to_close:
-        logger.info(order)
-        params = {
-            "sp": "WgA_SetOrderToNull",
-            "idOrder": order[3],
-            "df": "J",
-        }
-        for i in range(5):
-            try:
-                response = requests.request("GET", url_kino_baza, params=params)
-                logger.info(decode_unicode(response.text))
-                break
-            except Exception as e:
-                bot.send_message(5254091301,
-                                 f'!!!!Ошибка. Заказ unblock_all, но отменить не вышло {e}')
-                logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
-                time.sleep(7)
-
-        with psycopg2.connect(db_path) as data:
-            with data.cursor() as curs:
-                try:
-                    curs.execute(
-                        """UPDATE orders SET status = 0 WHERE performance_id = %s AND place_id = %s AND buyer_id = %s AND user_id = %s""",
-                        (order[0], order[1], order[2], user_id))
-                except Exception as e:
-                    bot.send_message(5254091301,
-                                     f'!!!!Ошибка UPDATE orders SET status. Заказ unblock_all, но отменить не вышло {e}: {order=}')
 
 
 def payment_button_pressed(request, user_id, performance_id, place_id, price, order_id):
@@ -226,6 +187,33 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price, or
             except TypeError:
                 buyer_id = 998277
 
+            try:
+                curs.execute("""SELECT status, payment_link, payment_msg_id FROM orders WHERE user_id = %s AND performance_id = %s""", (user_id, performance_id))
+                check_status = curs.fetchone()
+                if check_status[0] == 3:
+                    try:
+                        bot.delete_message(
+                            chat_id=user_id,
+                            message_id=check_status[2]
+                        )
+                    except Exception:
+                        pass
+                    return render(request, 'payment.html',
+                                  {'iframe_url': check_status[1], 'close_webapp': True, 'order_id': order_id})
+                if check_status[0] == 0:
+                    try:
+                        bot.delete_message(
+                            chat_id=user_id,
+                            message_id=check_status[2]
+                        )
+                    except Exception:
+                        pass
+                    unblock_performance(user_id, performance_id)
+                    return render(request, 'finish.html')
+            except Exception as e:
+                unblock_performance(user_id, performance_id)
+                return render(request, 'finish.html')
+
             curs.execute(
                 """SELECT row, place, price, order_id FROM orders WHERE order_id = %s AND  user_id = %s AND status = 1;""",
                 (order_id, user_id))
@@ -234,7 +222,8 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price, or
     if did_he_almoust_bye != None:  # если уже успешно купил билет на сеанс
         import telebot
         bot.send_message(user_id,
-                         f'''На сеанс можно купить только 1 билет по Пушкинской карте\nВаш билет\nРяд {did_he_almoust_bye[0]} Место {did_he_almoust_bye[1]} Цена {did_he_almoust_bye[2]}\nНомер заказа {did_he_almoust_bye[3]}''')
+                         f'На сеанс можно купить только 1 билет по Пушкинской карте\n'
+                         f'Ваш билет\nРяд {did_he_almoust_bye[0]} Место {did_he_almoust_bye[1]} Цена {did_he_almoust_bye[2]}\nНомер заказа {did_he_almoust_bye[3]}')
         return render(request, 'finish.html')
 
     Configuration.account_id = int(youkassa_shop_id)
@@ -260,8 +249,8 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price, or
     with psycopg2.connect(db_path) as dataf:
         with dataf.cursor() as curs:
             curs.execute(
-                """UPDATE orders SET status = 3, payment_id = %s, payment_link = %s WHERE order_id = %s AND  user_id = %s""",
-                (payment_id, payment_link, order_id, user_id))
+                """UPDATE orders SET status = 3, payment_id = %s, payment_link = %s WHERE order_id = %s AND user_id = %s AND performance_id = %s""",
+                (payment_id, payment_link, order_id, user_id, performance_id))
 
     return render(request, 'payment.html', {'iframe_url': payment_link, 'close_webapp': True, 'order_id': order_id})
 
@@ -278,6 +267,14 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
             except TypeError:
                 buyer_id = 2024
 
+    with psycopg2.connect(db_path) as data:
+        with data.cursor() as curs:
+            curs.execute("""SELECT * FROM orders WHERE user_id = %s AND performance_id = %s AND status != 0""", (user_id, performance_id))
+            check_order = curs.fetchone()
+
+    if check_order is not None:
+        return render(request, 'finish.html')
+
     # print(price, place_place, place_row, place_id, buyer_id)
     params = {
         "sp": "WgA_LockPlace",
@@ -288,20 +285,20 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
         "df": "J"
     }
 
-    response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params)
+    try:
+        response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params, timeout=5)
+    except Exception as e:
+        logger.exception("WgA_LockPlace")
+        unblock_performance(user_id, performance_id)
+        return render(request, 'finish.html')
+
     locked_place = response.json()
     # print(locked_place)
     # записываем в базу как заказ со статусом 1
-    place_locked_time = int(time.time())
-    uuid_order = str(uuid.uuid4())
-    with psycopg2.connect(db_path) as data:
-        with data.cursor() as curs:
-            curs.execute(
-                """INSERT INTO orders (user_id, buyer_id, performance_id, place_id, place_locked_time, status, place, row, uuid_order) VALUES (%s, %s, %s, %s, %s, 2, %s, %s, %s);""",
-                (user_id, buyer_id, performance_id, place_id, place_locked_time, place_place, place_row, uuid_order))
     try:
         if locked_place['Price']:  # если место свободно
-            # print(locked_place, 'open') %s
+            place_locked_time = int(time.time())
+            uuid_order = str(uuid.uuid4())
             price = locked_place['Price']
 
             # регистрируем заказ
@@ -310,30 +307,73 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
                 "IdClient": int(buyer_id),
                 "df": "J"}
 
-            response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params)
+            try:
+                response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params, timeout=5)
+            except Exception as e:
+                logger.exception("WgA_CreateMultyOrder")
+                unblock_performance(user_id, performance_id)
+                return render(request, 'finish.html')
+
             order_data = response.json()
 
             if isinstance(order_data, dict):
                 if order_data.get('Error') is not None:
                     bot.send_message(user_id,
                                      f'''Какая-то ошибка, попробуйте позже.\n{order_data.get('Error')}''')
-                    unblock_all(user_id, performance_id, "all")
+                    unblock_performance(user_id, performance_id)
                     return render(request, 'finish.html')
 
             try:
                 order_id = order_data['IdOrder']
             except TypeError:
-                unblock_all(user_id, performance_id, "all")
+                unblock_performance(user_id, performance_id)
                 return render(request, 'finish.html')
+
+            total_tickets = 1
+            try:
+                total_tickets = order_data['TotalTickets']
+                total_tickets = int(total_tickets)
+            except (TypeError, ValueError):
+                pass
+
+            if total_tickets != 1:
+                unblock_performance(user_id, performance_id)
+                seatMap = create_list_of_buttons(performance_id)
+                return render(request, 'index.html',
+                              {'form': form, 'seatMap': seatMap, 'down_text': 'Простите, '})
 
             try:
                 with psycopg2.connect(db_path) as data:
                     with data.cursor() as curs:
                         curs.execute(
-                            """UPDATE orders SET price = %s, order_id = %s WHERE uuid_order = %s AND status = 2;""",
-                            (price, order_id, uuid_order))
+                            """INSERT INTO orders 
+                            (user_id, buyer_id, performance_id, place_id,
+                             place_locked_time, status, place, row, uuid_order, price, order_id)
+                             VALUES (%s, %s, %s, %s, %s, 2, %s, %s, %s, %s, %s);""",
+                            (user_id, buyer_id, performance_id, place_id,
+                             place_locked_time, place_place, place_row, uuid_order, price, order_id)
+                        )
+            except psycopg2.IntegrityError as e:
+                if e.pgcode == '23505':  # Код ошибки UNIQUE VIOLATION
+                    unblock_performance(user_id, performance_id)
+                    with psycopg2.connect(db_path) as data:
+                        with data.cursor() as curs:
+                            curs.execute("""DELETE FROM orders WHERE user_id = %s AND performance_id = %s""", (user_id, performance_id))
+                            curs.execute(
+                                """INSERT INTO orders 
+                                (user_id, buyer_id, performance_id, place_id,
+                                 place_locked_time, status, place, row, uuid_order, price, order_id)
+                                 VALUES (%s, %s, %s, %s, %s, 2, %s, %s, %s, %s, %s);""",
+                                (user_id, buyer_id, performance_id, place_id,
+                                 place_locked_time, place_place, place_row, uuid_order, price, order_id)
+                            )
+                else:
+                    logger.exception(f"psycopg2.IntegrityError INSERT INTO orders: {e}")
+                    unblock_performance(user_id, performance_id)
+                    return render(request, 'finish.html')
             except Exception as e:
-                unblock_all(user_id, performance_id, "all")
+                logger.exception("INSERT INTO orders")
+                unblock_performance(user_id, performance_id)
                 return render(request, 'finish.html')
 
             seatMap = create_list_of_buttons(performance_id)
@@ -343,9 +383,14 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
                            'text': f'Ряд {place_row}\nМесто {place_place}\n\nЦена {price}'})
     except KeyError as ex:  # если место заблокировано уже
         logger.info(f"KeyError: lock {ex}")
+        unblock_performance(user_id, performance_id)
         seatMap = create_list_of_buttons(performance_id)
         return render(request, 'index.html',
                       {'form': form, 'seatMap': seatMap, 'down_text': 'Простите, это место уже занято'})
+    except Exception as e:
+        logger.exception("cheir_choosed")
+        unblock_performance(user_id, performance_id)
+        return render(request, 'finish.html')
 
 
 def decode_unicode(data):
@@ -380,7 +425,7 @@ def create_list_of_buttons(performance_id):
             with data.cursor() as curs:
                 # вытаскиваем id зала, потому что у некоторых залов специфические настройки
                 curs.execute("""SELECT hall_id FROM performance WHERE performance_id = %s;""",
-                                       (performance_id,))
+                             (performance_id,))
                 hall_id = curs.fetchone()[0]
         # в цикле мы разбиваем данные так что отдельные ряды это отдельные списки, внутри них есть занятые места и свободные.
         seatMap = []
@@ -523,3 +568,160 @@ def create_list_of_buttons(performance_id):
         # for a in seatMap:
         #     for b in a:
         #         print(b)
+
+
+def unblock_all(user_id, performance_id, place_id, delete_connection=True):
+    with psycopg2.connect(db_path) as data:
+        with data.cursor() as curs:
+            if place_id == 'all':
+                # берем все брони у пользователя на этот сеанс
+                curs.execute(
+                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = %s AND performance_id = %s AND status != 0;""",
+                    (user_id, performance_id))
+                orders_to_close = curs.fetchall()
+            else:
+                # берем все брони кроме place_id который нам передали
+                curs.execute(
+                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = %s AND performance_id = %s AND place_id != %s AND status != 0;""",
+                    (user_id, performance_id, place_id))
+                orders_to_close = curs.fetchall()
+
+    # print('11111111', orders_to_close)
+    # проходимся по всем таким броням
+    logger.info(orders_to_close)
+    for order in orders_to_close:
+        logger.info(order)
+        params = {
+            "sp": "WgA_SetOrderToNull",
+            "idOrder": order[3],
+            "df": "J",
+        }
+        for i in range(5):
+            try:
+                response = requests.request("GET", url_kino_baza, params=params)
+                logger.info(decode_unicode(response.text))
+                break
+            except Exception as e:
+                bot.send_message(5254091301,
+                                 f'!!!!Ошибка. Заказ unblock_all, но отменить не вышло {e}')
+                logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
+                time.sleep(7)
+
+        with psycopg2.connect(db_path) as data:
+            with data.cursor() as curs:
+                try:
+                    curs.execute(
+                        """UPDATE orders SET status = 0 WHERE performance_id = %s AND place_id = %s AND buyer_id = %s AND user_id = %s""",
+                        (order[0], order[1], order[2], user_id))
+                except Exception as e:
+                    bot.send_message(5254091301,
+                                     f'!!!!Ошибка UPDATE orders SET status. Заказ unblock_all, но отменить не вышло {e}: {order=}')
+
+
+def unblock_performance(user_id, performance_id):
+    with psycopg2.connect(db_path) as data:
+        with data.cursor() as curs:
+            curs.execute(
+                """SELECT performance_id, place_id, buyer_id, order_id, payment_msg_id, user_id FROM orders WHERE user_id = %s AND performance_id = %s AND status != 3 AND status != 1;""",
+                (user_id, performance_id))
+            order = curs.fetchone()
+
+    logger.info(order)
+    params = {
+        "sp": "WgA_SetOrderToNull",
+        "idOrder": order[3],
+        "df": "J",
+    }
+    for i in range(5):
+        try:
+            response = requests.request("GET", url_kino_baza, params=params, timeout=5)
+            logger.info(decode_unicode(response.text))
+            break
+        except Exception as e:
+            bot.send_message(5254091301,
+                             f'!!!!Ошибка. Заказ unblock_performance, но отменить не вышло {e}')
+            logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
+            time.sleep(7)
+
+    try:
+        bot.delete_message(
+            chat_id=order[5],
+            message_id=order[4],
+        )
+    except Exception:
+        pass
+
+    with psycopg2.connect(db_path) as data:
+        with data.cursor() as curs:
+            try:
+                curs.execute(
+                    """UPDATE orders SET status = 0, payment_link = NULL, payment_id = NULL, payment_msg_id = NULL WHERE performance_id = %s AND user_id = %s""",
+                    (performance_id, user_id))
+            except Exception as e:
+                bot.send_message(5254091301,
+                                 f'!!!!Ошибка UPDATE orders SET status. Заказ unblock_performance, но отменить не вышло {e}: {order=}')
+
+
+def check_user_performance(tg_id, performance_id):
+    with psycopg2.connect(db_path) as conn:
+        with conn.cursor() as curs:
+            curs.execute("""
+                    SELECT EXISTS (
+                        SELECT 1 FROM orders 
+                        WHERE user_id = %s AND performance_id = %s AND status != 0
+                    );
+                """, (tg_id, performance_id))
+            return curs.fetchone()[0]  # Получаем булево значение
+
+
+def cheir_choosed_from_main(request, user_id, performance_id):
+    with psycopg2.connect(db_path) as data:
+        with data.cursor() as curs:
+            curs.execute("""SELECT place_id, place, row, order_id, price, status, payment_msg_id FROM orders where user_id = %s AND performance_id = %s;""",
+                         (user_id, performance_id))
+            order = curs.fetchone()
+
+    place_id = order[0]
+    price = order[4]
+    place_place = order[1]
+    place_row = order[2]
+    order_id = order[3]
+    status = order[5]
+    msg_id = order[6]
+    if msg_id is not None:
+        try:
+            bot.delete_message(
+                chat_id=user_id,
+                message_id=msg_id,
+            )
+        except Exception:
+            pass
+
+    form = MyForm()
+
+    if status == 2:
+        with psycopg2.connect(db_path) as data:
+            with data.cursor() as curs:
+                curs.execute("""UPDATE orders SET payment_id = NULL, payment_link = NULL, status = 2""")
+        comment = "\nВы уже выбрали место на этот сеанс, оплатите его\nлибо нажмите назад, чтобы выбрать другое место"
+    elif status == 3:
+        with psycopg2.connect(db_path) as data:
+            with data.cursor() as curs:
+                curs.execute("""UPDATE orders SET payment_id = NULL, payment_link = NULL, status = 2""")
+        comment = "\nВы уже выбрали место на этот сеанс, оплатите его\nлибо нажмите назад, чтобы выбрать другое место\nпрошлая ссылка на оплату недействительна!"
+    elif status == 4:
+        return render(request, 'finish.html')
+    elif status == 1:
+        bot.send_message(user_id,
+                         f'На сеанс можно купить только 1 билет по Пушкинской карте\n'
+                         f'Ваш билет\nРяд {place_row} Место {place_place} Цена {price}\nНомер заказа {order_id}')
+        return render(request, 'finish.html')
+    elif status == 0:
+        unblock_performance(user_id, performance_id)
+        return render(request, 'finish.html')
+
+    return render(request, 'when_place_choosed.html',
+                  {'form': form, 'back_value': f'back,{price},{place_place},{place_row},{place_id},{order_id}',
+                   'button_value': f'pay,{price},{place_place},{place_row},{place_id},{order_id}',
+                   'text': f'Ряд {place_row}\nМесто {place_place}\n\nЦена {price}',
+                   'comment': comment})

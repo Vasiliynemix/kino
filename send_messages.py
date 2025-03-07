@@ -141,7 +141,7 @@ def send_movies(callback, date):
                         continue
                     perf_markup = types.InlineKeyboardMarkup(row_width=5)
                     for perf in performances:
-                        perf_webapp = types.WebAppInfo(f"{url_server}/kino/{perf[0]}")  # создаем webappinfo - формат хранения url
+                        perf_webapp = types.WebAppInfo(f"{url_server}/kino/{perf[0]}/{callback.from_user.id}")  # создаем webappinfo - формат хранения url
                         perf_but = types.KeyboardButton(text=f'{perf[3]} {perf[9]}', web_app=perf_webapp)  # создаем кнопку типа webapp
                         perf_markup.add(perf_but)
                     # отсылаем фильм с сеансами на выбранную дату

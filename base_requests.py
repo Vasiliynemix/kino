@@ -56,6 +56,7 @@ def safe_execute(func, func_name):
     """Безопасно выполняет функцию и логирует ошибки."""
     try:
         func()
+        print(f"Функция {func_name} выполнена успешно")
     except Exception as e:
         logger.exception(f"Ошибка в {func_name}")
         bot.send_message(5254091301, f'Ошибка в {func_name}\n{e}')
@@ -283,12 +284,16 @@ def all_performances_request():
             data_performances = response.json()
             with psycopg2.connect(db_path) as data:
                 with data.cursor() as curs:
-                    # если получен верный запрос в верной форме, стираем старые сеансы и заполняем заново
+                    # Сохраняем все связи из таблицы user_performance
+                    curs.execute("SELECT user_id, performance_id FROM user_performance")
+                    user_performance_data = curs.fetchall()  # Сохраняем связи в переменную
+
+                    # Удаляем старые данные
                     curs.execute("""DELETE FROM performance""")
+
+                    # Вставляем новые данные в performance
                     for data_performance in data_performances:
                         try:
-                            # print(data_performance)
-                            # Получение отдельной даты и времени
                             try:
                                 dt = datetime.datetime.strptime(data_performance['DateTime'], "%B %d %Y %I:%M:%S:%f%p")
                             except ValueError:
@@ -298,19 +303,21 @@ def all_performances_request():
                             time = dt.time()
                             time_str = time.strftime('%H:%M')
 
-                            # print(date_str, time)
-                            # print(today_date, date_str, today_time, time_str)
-                            # отсеиваем все, что прошло более 14 минут назад
-                            # print(data_performance)
-                            curs.execute(
-                                """INSERT INTO performance (performance_id, show_id, building_id, hallname, date, time, minprice, maxprice, freeplaces, building_name, hall_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (performance_id) DO NOTHING;""",
-                                (data_performance['IdPerformance'], data_performance['IdShow'],
-                                 data_performance['IdBuilding'], data_performance['HallName'], date_str, time_str,
-                                 data_performance['MinPrice'], data_performance['MaxPrice'], data_performance['FreePlace'],
-                                 data_performance['BuildingName'], data_performance['IdHall']))
+                            # Вставляем данные в таблицу performance, игнорируя дубликаты по performance_id
+                            curs.execute("""
+                                            INSERT INTO performance (performance_id, show_id, building_id, hallname, date, time, 
+                                                minprice, maxprice, freeplaces, building_name, hall_id) 
+                                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) 
+                                            ON CONFLICT (performance_id) DO NOTHING;
+                                        """, (data_performance['IdPerformance'], data_performance['IdShow'],
+                                              data_performance['IdBuilding'], data_performance['HallName'], date_str,
+                                              time_str,
+                                              data_performance['MinPrice'], data_performance['MaxPrice'],
+                                              data_performance['FreePlace'],
+                                              data_performance['BuildingName'], data_performance['IdHall']))
                         except Exception as e:
-                            logger.exception(f"Произошла ошибка {e}")
-
+                            logger.exception(f"Произошла ошибка при вставке performance: {e}")
+                            continue
         except Exception as e:
             logger.exception("Произошла ошибка")
             bot.send_message(5254091301, f'Ошибка базы по запросу all_performances_request \n{e}')
@@ -529,6 +536,7 @@ def check_payment_status(payment_id, report=True):
     row = order_data[11]
     place = order_data[12]
     performance_id = order_data[3]
+    payment_msg_id = order_data[15]
 
     # Если оплата отменена ЮКАССА
     if payment_status in ["canceled", "succeeded", "pending", "waiting_for_capture"]:
@@ -569,7 +577,6 @@ def check_payment_status(payment_id, report=True):
 
         # Если оплата успешна ЮКАССА
         elif payment_status == 'succeeded':
-            unblock_all(user_id, performance_id, place_id)
             is_succeeded = True
             is_fk_report_send = True
             try:
