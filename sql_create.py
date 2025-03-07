@@ -15,14 +15,16 @@ with psycopg2.connect(db_path) as pg_conn:
         # pg_cursor.execute("""ALTER TABLE orders ADD COLUMN payment_msg_id BIGINT""")
         #
         # pg_cursor.execute("""
-        #     WITH latest_orders AS (
-        #         SELECT DISTINCT ON (user_id, performance_id) order_id
+        #     DELETE FROM orders USING (
+        #         SELECT order_id
         #         FROM orders
-        #         WHERE place_locked_time IS NOT NULL
-        #         ORDER BY user_id, performance_id, place_locked_time DESC
-        #     )
-        #     DELETE FROM orders
-        #     WHERE order_id NOT IN (SELECT order_id FROM latest_orders);
+        #         WHERE order_id NOT IN (
+        #             SELECT DISTINCT ON (user_id, performance_id) order_id
+        #             FROM orders
+        #             ORDER BY user_id, performance_id, place_locked_time DESC NULLS LAST
+        #         )
+        #     ) AS subquery
+        #     WHERE orders.order_id = subquery.order_id;
         # """)
         #
         # pg_cursor.execute("""
