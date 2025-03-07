@@ -284,10 +284,6 @@ def all_performances_request():
             data_performances = response.json()
             with psycopg2.connect(db_path) as data:
                 with data.cursor() as curs:
-                    # Сохраняем все связи из таблицы user_performance
-                    curs.execute("SELECT user_id, performance_id FROM user_performance")
-                    user_performance_data = curs.fetchall()  # Сохраняем связи в переменную
-
                     # Удаляем старые данные
                     curs.execute("""DELETE FROM performance""")
 
