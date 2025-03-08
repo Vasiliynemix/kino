@@ -688,14 +688,14 @@ def cheir_choosed_from_main(request, user_id, performance_id):
     order_id = order[3]
     status = order[5]
     msg_id = order[6]
-    if msg_id is not None:
-        try:
-            bot.delete_message(
-                chat_id=user_id,
-                message_id=msg_id,
-            )
-        except Exception:
-            pass
+    # if msg_id is not None:
+    #     try:
+    #         bot.delete_message(
+    #             chat_id=user_id,
+    #             message_id=msg_id,
+    #         )
+    #     except Exception:
+    #         pass
 
     form = MyForm()
 
