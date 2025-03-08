@@ -700,15 +700,9 @@ def cheir_choosed_from_main(request, user_id, performance_id):
     form = MyForm()
 
     if status == 2:
-        with psycopg2.connect(db_path) as data:
-            with data.cursor() as curs:
-                curs.execute("""UPDATE orders SET payment_id = NULL, payment_link = NULL, status = 2""")
         comment = "\nВы уже выбрали место на этот сеанс, оплатите его\nлибо нажмите назад, чтобы выбрать другое место"
     elif status == 3:
-        with psycopg2.connect(db_path) as data:
-            with data.cursor() as curs:
-                curs.execute("""UPDATE orders SET payment_id = NULL, payment_link = NULL, status = 2""")
-        comment = "\nВы уже выбрали место на этот сеанс, оплатите его\nлибо нажмите назад, чтобы выбрать другое место\nпрошлая ссылка на оплату недействительна!"
+        return render(request, 'finish.html')
     elif status == 4:
         return render(request, 'finish.html')
     elif status == 1:

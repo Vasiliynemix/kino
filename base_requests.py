@@ -748,7 +748,7 @@ def unblock_5_min():
         with data.cursor() as curs:
             # берем все брони где не создан заказ и прошло 5 мин
             curs.execute(
-                """SELECT performance_id, place_id, buyer_id, payment_id, order_id FROM orders WHERE status = 2 AND place_locked_time < %s;""",
+                """SELECT performance_id, place_id, buyer_id, payment_id, order_id, user_id FROM orders WHERE status = 2 AND place_locked_time < %s;""",
                 (time.time() - 300,))
             place_to_unblock = curs.fetchall()
 
@@ -757,6 +757,9 @@ def unblock_5_min():
     # проходимся по всем таким броням
     for order in place_to_unblock:
         if order[4] is None:
+            with psycopg2.connect(db_path) as data:
+                with data.cursor() as curs:
+                    curs.execute("""UPDATE orders SET status = 0 WHERE user_id = %s AND performance_id = %s""", (order[5], order[0]))
             continue
 
         logger.info(order)

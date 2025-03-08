@@ -11,6 +11,10 @@ sqlite_cursor = sqlite_conn.cursor()
 # Подключение к PostgreSQL
 with psycopg2.connect(db_path) as pg_conn:
     with pg_conn.cursor() as pg_cursor:
+        # pg_cursor.execute("""SELECT * FROM orders""")
+        # orders = pg_cursor.fetchall()
+        # for order in orders:
+        #     pass
         # Создание таблиц в PostgreSQL
         # pg_cursor.execute("""ALTER TABLE orders ADD COLUMN payment_msg_id BIGINT""")
         #
