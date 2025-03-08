@@ -599,12 +599,13 @@ def check_payment_status(payment_id, report=True):
                 with psycopg2.connect(db_path) as data:
                     with data.cursor() as curs:
                         try:
-                            curs.execute("""UPDATE orders SET status = 1, kino_add_payment_id = %s WHERE payment_id = %s""",
-                                         (kino_add_payment_id, payment_id))
-                        except Exception as e:
+                            kino_add_payment_id = int(kino_add_payment_id)
                             curs.execute(
-                                """UPDATE orders SET status = 1, WHERE payment_id = %s""",
-                                (payment_id, ))
+                                """UPDATE orders SET status = 1, kino_add_payment_id = %s WHERE payment_id = %s""",
+                                (kino_add_payment_id, payment_id))
+                        except ValueError:
+                            curs.execute("""UPDATE orders SET status = 1 WHERE payment_id = %s""",
+                                     (payment_id, ))
 
                         curs.execute("""SELECT * FROM performance WHERE performance_id = %s""",
                                                         (performance_id,))
