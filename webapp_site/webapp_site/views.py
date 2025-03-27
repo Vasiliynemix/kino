@@ -239,6 +239,7 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price, or
             "type": "redirect",
             "return_url": f"{bot_url}?start=finishpayment,{order_id}"
         },
+        "capture": True,
         "description": f"Заказ №{order_id}",
     }, uuid.uuid4())
 
@@ -677,7 +678,7 @@ def check_user_performance(tg_id, performance_id):
 def cheir_choosed_from_main(request, user_id, performance_id):
     with psycopg2.connect(db_path) as data:
         with data.cursor() as curs:
-            curs.execute("""SELECT place_id, place, row, order_id, price, status, payment_msg_id FROM orders where user_id = %s AND performance_id = %s;""",
+            curs.execute("""SELECT place_id, place, row, order_id, price, status, payment_msg_id, payment_link FROM orders where user_id = %s AND performance_id = %s;""",
                          (user_id, performance_id))
             order = curs.fetchone()
 
@@ -687,35 +688,39 @@ def cheir_choosed_from_main(request, user_id, performance_id):
     place_row = order[2]
     order_id = order[3]
     status = order[5]
-    msg_id = order[6]
-    # if msg_id is not None:
-    #     try:
-    #         bot.delete_message(
-    #             chat_id=user_id,
-    #             message_id=msg_id,
-    #         )
-    #     except Exception:
-    #         pass
+    payment_link = order[7]
 
     form = MyForm()
 
     if status == 2:
         comment = "\nВы уже выбрали место на этот сеанс, оплатите его\nлибо нажмите назад, чтобы выбрать другое место"
+        return render(request, 'when_place_choosed.html',
+                      {'form': form, 'back_value': f'back,{price},{place_place},{place_row},{place_id},{order_id}',
+                       'button_value': f'pay,{price},{place_place},{place_row},{place_id},{order_id}',
+                       'text': f'Ряд {place_row}\nМесто {place_place}\n\nЦена {price}',
+                       'comment': comment})
+
     elif status == 3:
-        return render(request, 'finish.html')
+        comment = "\nВы уже выбрали место на этот сеанс, оплатите его\nлибо нажмите назад, чтобы выбрать другое место"
+        if payment_link is not None:
+            return render(request, 'when_place_choosed_with_url.html',
+                          {'form': form, 'payment_link': payment_link,
+                           'text': f'Ряд {place_row}\nМесто {place_place}\n\nЦена {price}',
+                           'comment': comment})
+        else:
+            return render(request, 'finish.html')
     elif status == 4:
         return render(request, 'finish.html')
+
     elif status == 1:
         bot.send_message(user_id,
                          f'На сеанс можно купить только 1 билет по Пушкинской карте\n'
                          f'Ваш билет\nРяд {place_row} Место {place_place} Цена {price}\nНомер заказа {order_id}')
         return render(request, 'finish.html')
+
     elif status == 0:
         unblock_performance(user_id, performance_id)
         return render(request, 'finish.html')
 
-    return render(request, 'when_place_choosed.html',
-                  {'form': form, 'back_value': f'back,{price},{place_place},{place_row},{place_id},{order_id}',
-                   'button_value': f'pay,{price},{place_place},{place_row},{place_id},{order_id}',
-                   'text': f'Ряд {place_row}\nМесто {place_place}\n\nЦена {price}',
-                   'comment': comment})
+    else:
+        return render(request, 'finish.html')
