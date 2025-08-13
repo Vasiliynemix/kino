@@ -117,7 +117,7 @@ def all_show_request():
                         try:
                             show['ShowName'] = show['ShowName'].replace('&quot;', '').replace('«', '').replace('»', '')
 
-                            logger.info(f"Вставляем show_id: {show['IdShow']}, name: {show['ShowName']}, duration: {show['Duration']}")
+                            # logger.info(f"Вставляем show_id: {show['IdShow']}, name: {show['ShowName']}, duration: {show['Duration']}")
                             curs.execute(
                                 """INSERT INTO show (show_id, name, duration)
                                    VALUES (%s, %s, %s)
@@ -161,7 +161,7 @@ def get_show_info():
 
                     response = requests.request("GET", url_kino_baza, params=params)
                     # print(response.url)
-                    logger.info(f"show_id: {show_id}, name: {name}, response.status_code: {response.status_code}")
+                    # logger.info(f"show_id: {show_id}, name: {name}, response.status_code: {response.status_code}")
 
                     if response.status_code == 200:
                         data_show = response.json()
