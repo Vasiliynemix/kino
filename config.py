@@ -1,9 +1,10 @@
 import os
 from pathlib import Path
 
+import requests
 from dotenv import load_dotenv
 from loguru import logger
-from telebot import TeleBot
+from telebot import TeleBot, apihelper
 from telebot.util import update_types
 from yookassa import Configuration
 load_dotenv()
@@ -33,6 +34,13 @@ if IS_PROD == "True":
     BOT_TOKEN = os.getenv('BOT_TOKEN')  # http://t.me/Mirkinopro_Bot
     url = os.getenv('URL')
     url_server = os.getenv('URL')
+    # URL локального Telegram Bot API
+    LOCAL_API = "http://localhost:8088/bot{token}/{method}"
+    # Патчим базовый URL TeleBot
+    apihelper.API_URL = LOCAL_API
+    # Создаём кастомную сессию (можно добавить адаптеры, прокси и т.д.)
+    session = requests.Session()
+    apihelper._get_req_session = lambda: session
 else:
     url = "https://super-powerful-bee.ngrok-free.app"
     url_server = "https://epic-man-obviously.ngrok-free.app"
