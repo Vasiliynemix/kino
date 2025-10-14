@@ -67,6 +67,11 @@ def create_ipv4_session():
 apihelper._get_req_session = create_ipv4_session  # TeleBot будет использовать IPv4
 
 bot = TeleBot(BOT_TOKEN)
+URL = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook"
+
+r = requests.get(URL, timeout=60)  # увеличен таймаут
+print(r.json())
+
 bot.delete_webhook()
 logger.info(f"webhook_url: {url}/webhook")
 bot.set_webhook(
