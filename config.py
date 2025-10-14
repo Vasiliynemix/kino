@@ -1,16 +1,11 @@
 import os
-import socket
 from pathlib import Path
 
-import requests
 from dotenv import load_dotenv
 from loguru import logger
-from requests.adapters import HTTPAdapter
-from telebot import TeleBot, apihelper
+from telebot import TeleBot
 from telebot.util import update_types
-from urllib3 import PoolManager
 from yookassa import Configuration
-
 load_dotenv()
 
 IS_PROD = os.getenv('IS_PROD')
@@ -43,36 +38,11 @@ else:
     url_server = "https://epic-man-obviously.ngrok-free.app"
     BOT_TOKEN = os.getenv('BOT_TOKEN_TEST')  # https://t.me/test_2_func_bot
 
-
-# Адаптер для принудительного IPv4
-class IPv4Adapter(HTTPAdapter):
-    def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
-        pool_kwargs['socket_options'] = [(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)]
-        self.poolmanager = PoolManager(
-            num_pools=connections,
-            maxsize=maxsize,
-            block=block,
-            **pool_kwargs
-        )
-
-    def proxy_manager_for(self, *args, **kwargs):
-        kwargs['socket_options'] = [(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)]
-        return super().proxy_manager_for(*args, **kwargs)
-
-def create_ipv4_session():
-    session = requests.Session()
-    session.mount("https://", IPv4Adapter())
-    return session
-
-apihelper._get_req_session = create_ipv4_session  # TeleBot будет использовать IPv4
-
 bot = TeleBot(BOT_TOKEN)
-URL = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook"
-
-r = requests.get(URL, timeout=60)  # увеличен таймаут
-print(r.json())
-
-bot.delete_webhook()
+try:
+    bot.delete_webhook()
+except Exception as e:
+    logger.exception(f"{e}")
 logger.info(f"webhook_url: {url}/webhook")
 bot.set_webhook(
     url=f"{url}/webhook",
