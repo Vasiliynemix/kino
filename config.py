@@ -39,6 +39,7 @@ if IS_PROD == "True":
     # Патчим базовый URL TeleBot
     apihelper.API_URL = LOCAL_API
     # Создаём кастомную сессию (можно добавить адаптеры, прокси и т.д.)
+    print("Попали сюда")
     session = requests.Session()
     apihelper._get_req_session = lambda: session
 else:
