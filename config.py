@@ -39,10 +39,7 @@ else:
     BOT_TOKEN = os.getenv('BOT_TOKEN_TEST')  # https://t.me/test_2_func_bot
 
 bot = TeleBot(BOT_TOKEN)
-try:
-    bot.delete_webhook()
-except Exception as e:
-    logger.exception(f"{e}")
+bot.delete_webhook()
 logger.info(f"webhook_url: {url}/webhook")
 bot.set_webhook(
     url=f"{url}/webhook",
