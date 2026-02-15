@@ -11,10 +11,10 @@ sqlite_cursor = sqlite_conn.cursor()
 # Подключение к PostgreSQL
 with psycopg2.connect(db_path) as pg_conn:
     with pg_conn.cursor() as pg_cursor:
-        pg_cursor.execute("""ALTER TABLE users ADD COLUMN name TEXT""")
-        pg_cursor.execute("""ALTER TABLE users ADD COLUMN surname TEXT""")
-        pg_cursor.execute("""ALTER TABLE users ADD COLUMN patronymic TEXT""")
-        pg_cursor.execute("""ALTER TABLE users ADD COLUMN agreement BOOLEAN""")
+        # pg_cursor.execute("""ALTER TABLE users ADD COLUMN name TEXT""")
+        # pg_cursor.execute("""ALTER TABLE users ADD COLUMN surname TEXT""")
+        # pg_cursor.execute("""ALTER TABLE users ADD COLUMN patronymic TEXT""")
+        # pg_cursor.execute("""ALTER TABLE users ADD COLUMN agreement BOOLEAN""")
 
         # pg_cursor.execute("""SELECT * FROM orders""")
         # orders = pg_cursor.fetchall()
