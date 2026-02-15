@@ -1,7 +1,10 @@
 import hashlib
 import json
 import os
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO
+from docx import Document
 
 import psycopg2
 import requests
@@ -31,6 +34,7 @@ def film_update_main():
 
     while True:
         try:
+            process_orders()
             # Сброс флага в новый день
             if datetime.date.today() != last_check_date:
                 kinopoisk_enabled = True
@@ -387,32 +391,111 @@ def all_performances_request():
                          f'Ошибка по запросу all_performances_request \nВ ответ на запрос возвращается код {response.status_code}')
 
 
-def user_reg(user_id):  # проверяем зареган ли пользователь, если нет то регаем
+def user_reg(user_id):
     with psycopg2.connect(db_path) as data:
         with data.cursor() as curs:
-            # если пользователя еще нет
-            curs.execute("""SELECT user_id FROM users WHERE user_id = %s;""", (user_id,))
+
+            # проверяем есть ли пользователь
+            curs.execute(
+                "SELECT user_id, buyer_id, name, surname, patronymic, agreement FROM users WHERE user_id = %s;",
+                (user_id,)
+            )
             user = curs.fetchone()
-            if user == None:
-                # получаем  идентификатор клиента и регистрируем пользователя
+
+            if user is None:
                 params = {
                     "sp": "Wga_Autorize",
                     "Login": f'a{user_id}с',
                     "Name": f"tg_id{user_id}",
                     "IdDocument": "3165",
-                    "df": "J"}
-                response = requests.request("GET", url_kino_baza, params=params)
+                    "df": "J"
+                }
+
+                response = requests.get(url_kino_baza, params=params)
+
                 try:
                     buyer = response.json()
-                    curs.execute(
-                        """INSERT INTO users (user_id, buyer_id) VALUES (%s, %s) ON CONFLICT (user_id) DO NOTHING;""",
-                        (user_id, buyer['IdClient']))
+                    buyer_id = buyer['IdClient']
                 except Exception:
-                    curs.execute(
-                        """INSERT INTO users (user_id, buyer_id) VALUES (%s, %s) ON CONFLICT (user_id) DO NOTHING;""",
-                        (user_id, 998277))
+                    buyer_id = 998277
 
-    return
+                # создаем пользователя и сразу возвращаем созданную строку
+                curs.execute("""
+                    INSERT INTO users (user_id, buyer_id)
+                    VALUES (%s, %s)
+                    RETURNING user_id, buyer_id, name, surname, patronymic, agreement;
+                """, (user_id, buyer_id))
+
+                user = curs.fetchone()
+
+            # возвращаем объект из БД
+            return {
+                "user_id": user[0],
+                "buyer_id": user[1],
+                "name": user[2],
+                "surname": user[3],
+                "patronymic": user[4],
+                "agreement": user[5],
+            }
+
+
+def user_fio_save(user_id, name, surname, patronymic, agreement):
+    with psycopg2.connect(db_path) as data:
+        with data.cursor() as curs:
+
+            # Проверяем, есть ли пользователь
+            curs.execute(
+                "SELECT user_id FROM users WHERE user_id = %s;",
+                (user_id,)
+            )
+            user = curs.fetchone()
+
+            # Если нет — создаём
+            if user is None:
+                params = {
+                    "sp": "Wga_Autorize",
+                    "Login": f'a{user_id}с',
+                    "Name": f"tg_id{user_id}",
+                    "IdDocument": "3165",
+                    "df": "J"
+                }
+
+                response = requests.get(url_kino_baza, params=params)
+
+                try:
+                    buyer = response.json()
+                    buyer_id = buyer['IdClient']
+                except Exception:
+                    buyer_id = 998277
+
+                curs.execute("""
+                    INSERT INTO users (user_id, buyer_id)
+                    VALUES (%s, %s);
+                """, (user_id, buyer_id))
+
+            # Обновляем ФИО и согласие
+            curs.execute("""
+                UPDATE users
+                SET name = %s,
+                    surname = %s,
+                    patronymic = %s,
+                    agreement = %s
+                WHERE user_id = %s
+                RETURNING user_id, buyer_id, name, surname, patronymic, agreement;
+            """, (name, surname, patronymic, agreement, user_id))
+
+            updated_user = curs.fetchone()
+
+            data.commit()
+
+            return {
+                "user_id": updated_user[0],
+                "buyer_id": updated_user[1],
+                "name": updated_user[2],
+                "surname": updated_user[3],
+                "patronymic": updated_user[4],
+                "agreement": updated_user[5],
+            }
 
 
 def validate_pochta_bank(
@@ -592,6 +675,11 @@ def check_payment_status(payment_id, report=True):
         with data.cursor() as curs:
             curs.execute("""SELECT * FROM orders WHERE payment_id = %s""", (payment_id,))
             order_data = curs.fetchone()
+            curs.execute("""SELECT name, surname, patronymic FROM users WHERE user_id = %s;""", (order_data[1],))
+            user = curs.fetchone()
+            fio = f"{user[1]} {user[0]} {user[2]}"
+            fio = fio.strip()
+            fio.lower().replace(" ", "")
 
     order_id = order_data[0]
     place_id = order_data[4]
@@ -644,11 +732,191 @@ def check_payment_status(payment_id, report=True):
             is_succeeded = True
             is_fk_report_send = True
             try:
-                try:
-                    bot.send_message(user_id,
-                                     f'Заказ успешно оплачен.\nРяд {row} Место {place} Цена {price}\nНомер заказа {order_id}\nПросто продиктуйте номер заказа на входе чтобы пройти в зал☺️')
-                except telebot.apihelper.ApiTelegramException:
-                    pass
+                with psycopg2.connect(db_path) as data:
+                    with data.cursor() as curs:
+                        curs.execute(
+                            """SELECT payment_id, payment_link, user_id, price, row, place, performance_id FROM orders WHERE order_id = %s""",
+                            (order_id,))
+                        order = curs.fetchone()
+
+                        curs.execute(
+                            """SELECT hallname, date, time, show_id, building_id FROM performance WHERE performance_id = %s""",
+                            (order[6],))
+                        performance = curs.fetchone()
+
+                        curs.execute(
+                            """SELECT name FROM show WHERE show_id = %s""",
+                            (performance[3],))
+                        show = curs.fetchone()
+
+                        curs.execute(
+                            """SELECT city FROM cinemas WHERE building_id = %s""",
+                            (performance[4],))
+                        cinema = curs.fetchone()
+
+                        user_id = order[2]
+                        price = order[3]
+                        row = order[4]
+                        place = order[5]
+
+                        hallname = performance[0]
+                        date = performance[1]
+                        time_ = performance[2]
+                        name = show[0]
+                        city = cinema[0]
+
+                        # Преобразуем дату из строки в объект datetime
+                        date_obj = datetime.datetime.strptime(date, "%Y-%m-%d")
+
+                        # Словарь с русскими названиями месяцев
+                        months = {
+                            1: "января", 2: "февраля", 3: "марта", 4: "апреля",
+                            5: "мая", 6: "июня", 7: "июля", 8: "августа",
+                            9: "сентября", 10: "октября", 11: "ноября", 12: "декабря"
+                        }
+
+                        # Формируем красивую дату
+                        date_ru = f"{date_obj.day} {months[date_obj.month]} {date_obj.year}"
+
+                        # Пример: объединяем с временем
+                        date_time_ru = f"{date_ru} {time_}"
+
+                        # Загружаем шаблон
+                        template_path = "Шаблон билета.docx"
+                        doc = Document(template_path)
+
+                        # Берём текущее UTC время
+                        now_utc = datetime.datetime.utcnow()
+
+                        # Создаём дельту +7 часов
+                        delta = datetime.timedelta(hours=7)
+
+                        # Применяем дельту, получаем время в UTC+7
+                        now_plus7 = now_utc + delta
+
+                        # Если нужно только дату
+                        purchase_date_ru = f"{now_plus7.day} {months[now_plus7.month]} {now_plus7.year} {now_plus7.hour:02}:{now_plus7.minute:02}"
+
+                        # Словарь с данными для подстановки
+                        replace_dict = {
+                            "{city}": city,
+                            "{cinema}": hallname,
+                            "{number}": str(order_id),
+                            "{date}": purchase_date_ru,
+                            "{cinema_date}": date_time_ru,
+                            "{name}": name,
+                            "{row}": str(row),
+                            "{place}": str(place),
+                            "{price}": str(price),
+                            "{fio}": fio
+                        }
+
+                        def replace_placeholder_safe(paragraph, replace_dict):
+                            """
+                            Заменяет плейсхолдеры даже если они разбиты на несколько run,
+                            при этом НЕ удаляет картинки и не ломает структуру параграфа.
+                            """
+
+                            # Собираем весь текст параграфа
+                            full_text = ''.join(run.text for run in paragraph.runs if run.text)
+
+                            replaced = False
+                            for key, value in replace_dict.items():
+                                if key in full_text:
+                                    full_text = full_text.replace(key, value)
+                                    replaced = True
+
+                            if not replaced:
+                                return  # ничего менять не нужно
+
+                            text_index = 0
+
+                            for run in paragraph.runs:
+                                if run.text:
+                                    length = len(run.text)
+                                    run.text = full_text[text_index:text_index + length]
+                                    text_index += length
+
+                            # Если новый текст длиннее старого — добавим остаток в последний текстовый run
+                            if text_index < len(full_text):
+                                for run in reversed(paragraph.runs):
+                                    if run.text:
+                                        run.text += full_text[text_index:]
+                                        break
+
+                        # Применяем к параграфам
+                        for paragraph in doc.paragraphs:
+                            replace_placeholder_safe(paragraph, replace_dict)
+
+                        # Таблицы
+                        for table in doc.tables:
+                            for row_cells in table.rows:
+                                for cell in row_cells.cells:
+                                    for paragraph in cell.paragraphs:
+                                        replace_placeholder_safe(paragraph, replace_dict)
+
+                        # Сохраняем документ в буфер памяти, чтобы не писать на диск
+                        file_stream = BytesIO()
+                        doc.save(file_stream)
+                        file_stream.seek(0)
+
+                        # Пути к временным файлам
+                        docx_path = f"/tmp/Билет_№{order_id}.docx"
+                        pdf_path = f"/tmp/Билет_№{order_id}.pdf"
+
+                        # Сохраняем docx на диск
+                        doc.save(docx_path)
+
+                        # Конвертируем в PDF через LibreOffice (headless)
+                        subprocess.run([
+                            "libreoffice",
+                            "--headless",
+                            "--convert-to", "pdf",
+                            docx_path,
+                            "--outdir", "/tmp"
+                        ], check=True)
+
+                        # Читаем PDF в BytesIO для отправки
+                        pdf_stream = BytesIO()
+                        with open(pdf_path, "rb") as f:
+                            pdf_stream.write(f.read())
+                        pdf_stream.seek(0)
+
+                        msg_text = (
+                            "<b>✅ Заказ оплачен</b>\n\n"
+                            f"<b>Заказ №:</b> {order_id}\n"
+                            f"<b>Сеанс:</b> {name}\n"
+                            f"<b>Кинотеатр:</b> {hallname} ({city})\n"
+                            f"<b>Дата и время сеанса:</b> {date_time_ru}\n"
+                            f"<b>Ряд / Место:</b> {row} / {place}\n"
+                            f"<b>Цена:</b> {price} р.\n\n"
+                            "👇 Ваш билет ниже 👇"
+                        )
+
+                        try:
+                            bot.send_message(
+                                user_id,
+                                msg_text,
+                                parse_mode="HTML",
+                            )
+                            bot.send_document(
+                                user_id,
+                                pdf_stream,
+                                caption=f"Ваш билет №{order_id}",
+                                visible_file_name=f"Билет_№{order_id}.pdf"
+                            )
+                        except telebot.apihelper.ApiTelegramException as e:
+                            logger.exception("telebot.apihelper.ApiTelegramException")
+                        except Exception as e:
+                            logger.exception("telebot.apihelper.ApiTelegramException")
+
+                        try:
+                            # Опционально: удаляем временные файлы
+                            os.remove(docx_path)
+                            os.remove(pdf_path)
+                        except Exception:
+                            logger.exception("remove")
+
                 params = {  # создаем оплату в базе миркино
                     "sp": "WgA_AddPayment",
                     "IdOrder": order_id,
@@ -738,7 +1006,7 @@ def check_payment_status(payment_id, report=True):
             # Преобразование datetime в UNIX timestamp
             event_session_timestamp = int(time.mktime(date_time_obj.timetuple()))
 
-            buyer_info = "зуеввасилийсергеевич"
+            buyer_info = fio
 
             ok, text = validate_pochta_bank(
                 buyer_info=buyer_info,

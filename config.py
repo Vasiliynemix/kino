@@ -5,7 +5,8 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 from loguru import logger
-from telebot import TeleBot, apihelper
+from telebot import TeleBot, apihelper, StateMemoryStorage, custom_filters
+from telebot.states.sync import StateMiddleware
 from telebot.util import update_types
 from yookassa import Configuration
 
@@ -51,7 +52,8 @@ else:
     url_server = "https://epic-man-obviously.ngrok-free.app"
     BOT_TOKEN = os.getenv('BOT_TOKEN_TEST')  # https://t.me/test_2_func_bot
 
-bot = TeleBot(BOT_TOKEN)
+state_storage = StateMemoryStorage()
+bot = TeleBot(BOT_TOKEN, state_storage=state_storage, use_class_middlewares=True)
 try:
     bot.delete_webhook()
 except Exception as e:
@@ -62,6 +64,11 @@ bot.set_webhook(
     allowed_updates=update_types,
     drop_pending_updates=True,
 )
+
+# Add custom filters
+bot.add_custom_filter(custom_filters.StateFilter(bot))
+
+bot.setup_middleware(StateMiddleware(bot))
 
 root_path = Path(__file__).parent
 old_sqlite_path = os.path.join(root_path, "kino.db")

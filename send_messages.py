@@ -12,27 +12,33 @@ from pkg.log import CustomLogger
 CustomLogger().add_logger(info_log_file, __name__)
 
 
-def send_cinemas(message):
+def send_cinemas(user_id):
     # 1 шаг, спрашиваем город
     # берем все города, приобразовываем в кнопки и посылаем в сообщении
 
-    t1 = time.time()
+    # t1 = time.time()
     with psycopg2.connect(db_path) as conn:
         with conn.cursor() as curs:
             curs.execute("""SELECT DISTINCT city FROM cinemas;""")
             cinemas = curs.fetchall()
+            curs.execute("""SELECT name, surname, patronymic FROM users where user_id = %s;""", (user_id,))
+            user = curs.fetchone()
 
     city_markup = types.InlineKeyboardMarkup(row_width=1)
     for cinema in cinemas:
         city_but = types.InlineKeyboardButton(text=cinema[0], callback_data=f'choose_cinema {cinema[0]}')
         city_markup.add(city_but)
-    t2 = time.time()
+    # t2 = time.time()
     try:
-        bot.send_message(message.from_user.id, 'Выберите город', reply_markup=city_markup)
+        fio = types.InlineKeyboardMarkup()
+        but = types.InlineKeyboardButton(text="Изменить ФИО", callback_data='update_fio')
+        fio.add(but)
+        bot.send_message(user_id, f"{user[1]} {user[0]} {user[2]}", reply_markup=fio)
+        bot.send_message(user_id, 'Выберите город', reply_markup=city_markup)
     except telebot.apihelper.ApiTelegramException:
         pass
-    t3 = time.time()
-    logger.info(f"Total time: {t3 - t1}, Execution time: {t2 - t1}, Sending time: {t3 - t2}")
+    # t3 = time.time()
+    # logger.info(f"Total time: {t3 - t1}, Execution time: {t2 - t1}, Sending time: {t3 - t2}")
 
 
 def send_dates(callback):
@@ -141,8 +147,10 @@ def send_movies(callback, date):
                         continue
                     perf_markup = types.InlineKeyboardMarkup(row_width=5)
                     for perf in performances:
-                        perf_webapp = types.WebAppInfo(f"{url_server}/kino/{perf[0]}/{callback.from_user.id}")  # создаем webappinfo - формат хранения url
-                        perf_but = types.KeyboardButton(text=f'{perf[3]} {perf[9]}', web_app=perf_webapp)  # создаем кнопку типа webapp
+                        perf_webapp = types.WebAppInfo(
+                            f"{url_server}/kino/{perf[0]}/{callback.from_user.id}")  # создаем webappinfo - формат хранения url
+                        perf_but = types.KeyboardButton(text=f'{perf[3]} {perf[9]}',
+                                                        web_app=perf_webapp)  # создаем кнопку типа webapp
                         perf_markup.add(perf_but)
                     # отсылаем фильм с сеансами на выбранную дату
                     # если есть фото
@@ -167,7 +175,8 @@ def send_movies(callback, date):
                             logger.error(e)
                 if somthing_sended is False:
                     try:
-                        bot.send_message(callback.from_user.id, 'Кажется сеансов по заданным критериям для пушкинской карты нет, простите😔')
+                        bot.send_message(callback.from_user.id,
+                                         'Кажется сеансов по заданным критериям для пушкинской карты нет, простите😔')
                     except telebot.apihelper.ApiTelegramException:
                         pass
 

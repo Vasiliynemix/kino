@@ -70,27 +70,89 @@ def process_payment(request):
             with psycopg2.connect(db_path) as data:
                 with data.cursor() as curs:
                     curs.execute(
-                        """SELECT payment_id, payment_link, user_id, price, row, place FROM orders WHERE order_id = %s""",
+                        """SELECT payment_id, payment_link, user_id, price, row, place, performance_id FROM orders WHERE order_id = %s""",
                         (order_id,))
                     order = curs.fetchone()
                     if order is None:
                         return JsonResponse({"status": "error", "message": "Order not found"}, status=404)
+
+                    curs.execute(
+                        """SELECT hallname, date, time, show_id, building_id FROM performance WHERE performance_id = %s""",
+                        (order[6],))
+                    performance = curs.fetchone()
+                    if performance is None:
+                        return JsonResponse({"status": "error", "message": "Performance not found"}, status=404)
+
+                    curs.execute(
+                        """SELECT name FROM show WHERE show_id = %s""",
+                        (performance[3],))
+                    show = curs.fetchone()
+                    if show is None:
+                        return JsonResponse({"status": "error", "message": "Show not found"}, status=404)
+
+                    curs.execute(
+                        """SELECT city FROM cinemas WHERE building_id = %s""",
+                        (performance[4],))
+                    cinema = curs.fetchone()
+                    if cinema is None:
+                        return JsonResponse({"status": "error", "message": "Cinema not found"}, status=404)
+
                     payment_link = order[1]
                     user_id = order[2]
                     price = order[3]
                     row = order[4]
                     place = order[5]
 
+                    hallname = performance[0]
+                    date = performance[1]
+                    time = performance[2]
+                    name = show[0]
+                    city = cinema[0]
+
+                    # Преобразуем дату из строки в объект datetime
+                    date_obj = datetime.strptime(date, "%Y-%m-%d")
+
+                    # Словарь с русскими названиями месяцев
+                    months = {
+                        1: "января", 2: "февраля", 3: "марта", 4: "апреля",
+                        5: "мая", 6: "июня", 7: "июля", 8: "августа",
+                        9: "сентября", 10: "октября", 11: "ноября", 12: "декабря"
+                    }
+
+                    # Формируем красивую дату
+                    date_ru = f"{date_obj.day} {months[date_obj.month]} {date_obj.year}"
+
+                    # Пример: объединяем с временем
+                    date_time_ru = f"{date_ru} {time}"
+
+                    msg_text = (
+                        f"<b>Заказ №:</b> {order_id}\n\n"
+                        f"<b>Сеанс:</b> {name}\n"
+                        f"<b>Кинотеатр:</b> {hallname} ({city})\n"
+                        f"<b>Дата и время сеанса:</b> {date_time_ru}\n"
+                        f"<b>Ряд / Место:</b> {row} / {place}\n"
+                        f"<b>Цена:</b> {price} р.\n\n"
+                        f"Для оплаты нажмите кнопку ниже ⬇️"
+                    )
+
                     msg = bot.send_message(
                         user_id,
-                        f"<b>Заказ №{order_id}.\nЦена: {price} р.\nРяд: {row}\nМесто: {place}</b>",
+                        msg_text,
                         reply_markup=telebot.types.InlineKeyboardMarkup(
-                            [[telebot.types.InlineKeyboardButton("Оплатить по Пушкинской карте", url=payment_link)]]),
+                            [[telebot.types.InlineKeyboardButton("Оплатить по Пушкинской карте", url=payment_link)]]
+                        ),
                         parse_mode='HTML',
                     )
+                    # msg = bot.send_message(
+                    #     user_id,
+                    #     f"<b>Заказ №{order_id}.\nЦена: {price} р.\nРяд: {row}\nМесто: {place}</b>",
+                    #     reply_markup=telebot.types.InlineKeyboardMarkup(
+                    #         [[telebot.types.InlineKeyboardButton("Оплатить по Пушкинской карте", url=payment_link)]]),
+                    #     parse_mode='HTML',
+                    # )
                     curs.execute(
-                    """UPDATE orders SET payment_msg_id = %s WHERE order_id = %s""",
-                    (msg.message_id, order_id,))
+                        """UPDATE orders SET payment_msg_id = %s WHERE order_id = %s""",
+                        (msg.message_id, order_id,))
 
             return JsonResponse({"status": "success"})
 
@@ -141,7 +203,13 @@ def finishpayment(request, order_id):
 
 def kino(request, performance_id, tg_id):
     try:
-        # print(request)
+        with psycopg2.connect(db_path) as data:
+            with data.cursor() as curs:
+                curs.execute("""SELECT name, surname, patronymic FROM users WHERE user_id = %s;""", (tg_id,))
+                user = curs.fetchone()
+                fio = f"{user[1]} {user[0]} {user[2]}"
+                fio = fio.strip()
+
         if request.method == 'POST':  # при нажатии на кнопку
             form = MyForm(request.POST)
             if form.is_valid():
@@ -155,7 +223,7 @@ def kino(request, performance_id, tg_id):
                     seatMap = create_list_of_buttons(performance_id)
                     form = MyForm()
                     return render(request, 'index.html',
-                                  {'form': form, 'seatMap': seatMap, 'down_text': 'Выберите 1 место',
+                                  {'form': form, 'seatMap': seatMap, 'fio': fio, 'down_text': 'Выберите 1 место',
                                    'is_new_data': True})
                 elif state == 'pay':  # если нажал оплатить
                     ret = payment_button_pressed(request, user_id, performance_id, place_id, price, order_id)
@@ -173,7 +241,7 @@ def kino(request, performance_id, tg_id):
             seatMap = create_list_of_buttons(performance_id)
             form = MyForm()
             return render(request, 'index.html',
-                          {'form': form, 'seatMap': seatMap, 'down_text': 'Выберите 1 место', 'is_new_data': True})
+                          {'form': form, 'seatMap': seatMap, 'fio': fio, 'down_text': 'Выберите 1 место', 'is_new_data': True})
     except Exception:
         logger.exception("-")
 
@@ -188,7 +256,9 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price, or
                 buyer_id = 998277
 
             try:
-                curs.execute("""SELECT status, payment_link, payment_msg_id FROM orders WHERE user_id = %s AND performance_id = %s""", (user_id, performance_id))
+                curs.execute(
+                    """SELECT status, payment_link, payment_msg_id FROM orders WHERE user_id = %s AND performance_id = %s""",
+                    (user_id, performance_id))
                 check_status = curs.fetchone()
                 if check_status[0] == 3:
                     try:
@@ -263,14 +333,17 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
         with data.cursor() as curs:
             # вытаскиваем id зала, потому что у некоторых залов специфические настройки
             try:
-                curs.execute("""SELECT buyer_id FROM users WHERE user_id = %s;""", (user_id,))
-                buyer_id = curs.fetchone()[0]
+                curs.execute("""SELECT buyer_id, name, surname, patronymic FROM users WHERE user_id = %s;""", (user_id,))
+                user = curs.fetchone()
+                buyer_id = user[0]
             except TypeError:
                 buyer_id = 2024
 
-    with psycopg2.connect(db_path) as data:
-        with data.cursor() as curs:
-            curs.execute("""SELECT * FROM orders WHERE user_id = %s AND performance_id = %s AND status != 0""", (user_id, performance_id))
+            fio = f"{user[2]} {user[1]} {user[3]}"
+            fio = fio.strip()
+
+            curs.execute("""SELECT * FROM orders WHERE user_id = %s AND performance_id = %s AND status != 0""",
+                         (user_id, performance_id))
             check_order = curs.fetchone()
 
     if check_order is not None:
@@ -287,7 +360,8 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
     }
 
     try:
-        response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params, timeout=5)
+        response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params,
+                                    timeout=5)
     except Exception as e:
         logger.exception("WgA_LockPlace")
         unblock_performance(user_id, performance_id)
@@ -309,7 +383,8 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
                 "df": "J"}
 
             try:
-                response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params, timeout=5)
+                response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params,
+                                            timeout=5)
             except Exception as e:
                 logger.exception("WgA_CreateMultyOrder")
                 unblock_performance(user_id, performance_id)
@@ -341,7 +416,7 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
                 unblock_performance(user_id, performance_id)
                 seatMap = create_list_of_buttons(performance_id)
                 return render(request, 'index.html',
-                              {'form': form, 'seatMap': seatMap, 'down_text': 'Простите, '})
+                              {'form': form, 'seatMap': seatMap, 'fio': fio, 'down_text': 'Простите, '})
 
             try:
                 with psycopg2.connect(db_path) as data:
@@ -359,7 +434,8 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
                     unblock_performance(user_id, performance_id)
                     with psycopg2.connect(db_path) as data:
                         with data.cursor() as curs:
-                            curs.execute("""DELETE FROM orders WHERE user_id = %s AND performance_id = %s""", (user_id, performance_id))
+                            curs.execute("""DELETE FROM orders WHERE user_id = %s AND performance_id = %s""",
+                                         (user_id, performance_id))
                             curs.execute(
                                 """INSERT INTO orders 
                                 (user_id, buyer_id, performance_id, place_id,
@@ -379,7 +455,7 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
 
             seatMap = create_list_of_buttons(performance_id)
             return render(request, 'when_place_choosed.html',
-                          {'form': form, 'back_value': f'back,{price},{place_place},{place_row},{place_id},{order_id}',
+                          {'form': form, 'fio': fio, 'back_value': f'back,{price},{place_place},{place_row},{place_id},{order_id}',
                            'button_value': f'pay,{price},{place_place},{place_row},{place_id},{order_id}',
                            'text': f'Ряд {place_row}\nМесто {place_place}\n\nЦена {price}'})
     except KeyError as ex:  # если место заблокировано уже
@@ -387,7 +463,7 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
         unblock_performance(user_id, performance_id)
         seatMap = create_list_of_buttons(performance_id)
         return render(request, 'index.html',
-                      {'form': form, 'seatMap': seatMap, 'down_text': 'Простите, это место уже занято'})
+                      {'form': form, 'seatMap': seatMap, 'fio': fio, 'down_text': 'Простите, это место уже занято'})
     except Exception as e:
         logger.exception("cheir_choosed")
         unblock_performance(user_id, performance_id)
@@ -678,9 +754,14 @@ def check_user_performance(tg_id, performance_id):
 def cheir_choosed_from_main(request, user_id, performance_id):
     with psycopg2.connect(db_path) as data:
         with data.cursor() as curs:
-            curs.execute("""SELECT place_id, place, row, order_id, price, status, payment_msg_id, payment_link FROM orders where user_id = %s AND performance_id = %s;""",
-                         (user_id, performance_id))
+            curs.execute(
+                """SELECT place_id, place, row, order_id, price, status, payment_msg_id, payment_link FROM orders where user_id = %s AND performance_id = %s;""",
+                (user_id, performance_id))
             order = curs.fetchone()
+            curs.execute("""SELECT name, surname, patronymic FROM users WHERE user_id = %s;""", (user_id,))
+            user = curs.fetchone()
+            fio = f"{user[1]} {user[0]} {user[2]}"
+            fio = fio.strip()
 
     place_id = order[0]
     price = order[4]
@@ -695,7 +776,7 @@ def cheir_choosed_from_main(request, user_id, performance_id):
     if status == 2:
         comment = "\nВы уже выбрали место на этот сеанс, оплатите его\nлибо нажмите назад, чтобы выбрать другое место"
         return render(request, 'when_place_choosed.html',
-                      {'form': form, 'back_value': f'back,{price},{place_place},{place_row},{place_id},{order_id}',
+                      {'form': form, 'fio': fio, 'back_value': f'back,{price},{place_place},{place_row},{place_id},{order_id}',
                        'button_value': f'pay,{price},{place_place},{place_row},{place_id},{order_id}',
                        'text': f'Ряд {place_row}\nМесто {place_place}\n\nЦена {price}',
                        'comment': comment})
@@ -704,7 +785,7 @@ def cheir_choosed_from_main(request, user_id, performance_id):
         comment = "\nВы уже выбрали место на этот сеанс, оплатите его\nлибо нажмите назад, чтобы выбрать другое место"
         if payment_link is not None:
             return render(request, 'when_place_choosed_with_url.html',
-                          {'form': form, 'payment_link': payment_link,
+                          {'form': form, 'fio': fio, 'payment_link': payment_link,
                            'text': f'Ряд {place_row}\nМесто {place_place}\n\nЦена {price}',
                            'comment': comment})
         else:
