@@ -34,7 +34,7 @@ def film_update_main():
 
     while True:
         try:
-            process_orders()
+            # process_orders()
             # Сброс флага в новый день
             if datetime.date.today() != last_check_date:
                 kinopoisk_enabled = True
