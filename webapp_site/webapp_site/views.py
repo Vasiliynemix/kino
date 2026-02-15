@@ -76,6 +76,21 @@ def process_payment(request):
                     if order is None:
                         return JsonResponse({"status": "error", "message": "Order not found"}, status=404)
 
+                    curs.execute("""SELECT name, surname, patronymic, agreement FROM users WHERE user_id = %s;""", (order[2],))
+                    user = curs.fetchone()
+                    if user is None:
+                        return JsonResponse({"status": "error", "message": "User not found"}, status=404)
+
+                    if user[0] is None or user[1] is None:
+                        msg = bot.send_message(
+                            order[2],
+                            "Извините, для начала Вам нужно заполнить ФИО, для этого введите /start",
+                        )
+                        return JsonResponse({"status": "success"})
+
+                    fio = f"{user[1]} {user[0]} {user[2]}"
+                    fio = fio.strip()
+
                     curs.execute(
                         """SELECT hallname, date, time, show_id, building_id FROM performance WHERE performance_id = %s""",
                         (order[6],))
