@@ -552,7 +552,7 @@ def validate_pochta_bank(
 
             return False, reason_text
     else:
-        logger.info(f"validate_pochta_bank {response.status_code=}, {response.json()=}")
+        logger.info(f"validate_pochta_bank {response.status_code=}, {response.text=}")
         return False, "400"
 
 
