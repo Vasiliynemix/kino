@@ -1087,21 +1087,19 @@ windows-terminal = ["colorama (>=0.4.6)"]
 
 [[package]]
 name = "pytelegrambotapi"
-version = "4.21.0"
-description = "Python Telegram bot api."
+version = "4.32.0"
+description = "Python Telegram bot API."
 optional = false
-python-versions = ">=3.8"
+python-versions = ">=3.9"
 files = [
-    {file = "pytelegrambotapi-4.21.0-py3-none-any.whl", hash = "sha256:686813e4d4f9e917530cd9cd411d62265293f12783294ebef87f8a1fe195b262"},
-    {file = "pytelegrambotapi-4.21.0.tar.gz", hash = "sha256:b32cde09f295f80330253cc185104f02c4d70041782d3524c4cc424abbaba636"},
+    {file = "pytelegrambotapi-4.32.0-py3-none-any.whl", hash = "sha256:ed973b302bc7014d06a7ad3cadd76a02e79498ff1e2c4be9e5ca96b0ba352d63"},
+    {file = "pytelegrambotapi-4.32.0.tar.gz", hash = "sha256:01d36a5c0df9d1293fc768a802542ad7f4aeb3fcd5d1574b5116d935b3a3313a"},
 ]
 
 [package.dependencies]
 requests = "*"
 
 [package.extras]
-aiohttp = ["aiohttp"]
-aioredis = ["aioredis"]
 coloredlogs = ["coloredlogs"]
 fastapi = ["fastapi"]
 json = ["ujson"]
@@ -1306,21 +1304,6 @@ anyio = ">=3.4.0,<5"
 
 [package.extras]
 full = ["httpx (>=0.22.0)", "itsdangerous", "jinja2", "python-multipart (>=0.0.7)", "pyyaml"]
-
-[[package]]
-name = "telebot"
-version = "0.0.5"
-description = "A Telegram bot library, with simple route decorators."
-optional = false
-python-versions = "*"
-files = [
-    {file = "telebot-0.0.5-py3-none-any.whl", hash = "sha256:50327c240243480d40ade4ea5bea4f464bf57d4ff000ea669fcd705396074863"},
-    {file = "telebot-0.0.5.tar.gz", hash = "sha256:848a5885b57247b65edd0e92647b4372ebd8d41611dca3f344788c11deac2571"},
-]
-
-[package.dependencies]
-pyTelegramBotAPI = "*"
-requests = "*"
 
 [[package]]
 name = "tempora"
@@ -1869,4 +1852,4 @@ test = ["zope.testing"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<3.13"
-content-hash = "bbc378b7283ce17c65b8f73f0a000fdcdbc84f0b5c5d646c499525ae4113e895"
+content-hash = "49417d8c589ab446fb8a87d4a1867072522210eeba4f95c988a9e2792d438877"
