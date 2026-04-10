@@ -12,14 +12,14 @@ from yookassa import Configuration
 
 load_dotenv()
 
-# Форсируем IPv4 глобально
-orig_getaddrinfo = socket.getaddrinfo
-socket.getaddrinfo = lambda host, *args, **kwargs: [
-    r for r in orig_getaddrinfo(host, *args, **kwargs) if r[0] == socket.AF_INET
-]
-
-# Проверяем, что DNS теперь резолвится только в IPv4
-print(socket.getaddrinfo("api.telegram.org", 443))
+# # Форсируем IPv4 глобально
+# orig_getaddrinfo = socket.getaddrinfo
+# socket.getaddrinfo = lambda host, *args, **kwargs: [
+#     r for r in orig_getaddrinfo(host, *args, **kwargs) if r[0] == socket.AF_INET
+# ]
+#
+# # Проверяем, что DNS теперь резолвится только в IPv4
+# print(socket.getaddrinfo("api.telegram.org", 443))
 
 IS_PROD = os.getenv('IS_PROD')
 proxy_url = os.getenv('PROXY_URL')
