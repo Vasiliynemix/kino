@@ -1,3 +1,8 @@
+from telebot import apihelper
+from config import proxy_url
+
+apihelper.proxy = {"https": proxy_url}
+
 import datetime
 import os
 import re

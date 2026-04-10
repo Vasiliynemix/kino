@@ -22,6 +22,7 @@ socket.getaddrinfo = lambda host, *args, **kwargs: [
 print(socket.getaddrinfo("api.telegram.org", 443))
 
 IS_PROD = os.getenv('IS_PROD')
+proxy_url = os.getenv('PROXY_URL')
 
 # доки сбера https://securepayments.sberbank.ru/wiki/doku.php/integration:api:rest:requests:getorderstatusextended
 
