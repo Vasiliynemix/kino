@@ -60,6 +60,8 @@ try:
 except Exception as e:
     logger.exception(f"{e}")
 logger.info(f"webhook_url: {url}/webhook")
+webhook_info = bot.get_webhook_info()
+logger.info(f"{webhook_info=!r}")
 bot.set_webhook(
     url=f"{url}/webhook",
     allowed_updates=update_types,
