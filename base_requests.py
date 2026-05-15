@@ -1,601 +1,511 @@
+"""
+base_requests.py
+Бизнес-логика: обновление фильмов, работа с платежами, регистрация пользователей.
+
+Все вызовы бота заменены на sync-bridge из config.py:
+  await notify_admin(text)           — отправить сообщение администратору
+  send_message_sync(id, text)  — отправить сообщение пользователю
+  send_document_sync(...)      — отправить документ (PDF-билет)
+"""
+import asyncio
+import datetime
 import hashlib
 import json
 import os
+import re
 import subprocess
-from concurrent.futures import ThreadPoolExecutor
+import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from io import BytesIO
-from docx import Document
 
 import psycopg2
 import requests
-import time
-import datetime
-
+from docx import Document
 from loguru import logger
-from telebot import types
-import telebot
-import re
-
+from maxapi.types import ButtonsPayload, LinkButton
 from yookassa import Payment, Configuration
 
-from config import bot, url_kino_baza, url_prokultura, kinopoisk_token, info_log_file, \
-    db_path, root_path, url, youkassa_shop_id, youkassa_secret_key, validation_url, pochta_bank_token
+from config import (
+    db_path,
+    info_log_file,
+    kinopoisk_token,
+    notify_admin,
+    pochta_bank_token,
+    root_path,
+    send_document_sync,
+    send_message_sync,
+    url,
+    url_kino_baza,
+    url_prokultura,
+    youkassa_shop_id,
+    youkassa_secret_key,
+    validation_url, url_server, get_loop,
+)
 from pkg.log import CustomLogger
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
 CustomLogger().add_logger(info_log_file, __name__)
 
+ADMIN_ID = 8099031
+ADMIN_ID_CHAT = 284784629
+ADMIN_ID_2 = 1013689498  # Антон
 
-def film_update_main():
+
+# ─── Главный цикл обновления ──────────────────────────────────────────────────
+def film_update_main(loop):
     i = 1
-
-    kinopoisk_enabled = True  # фла
-    last_check_date = datetime.date.today()  # сегодня
+    kinopoisk_enabled = True
+    last_check_date = datetime.date.today()
 
     while True:
+        start = time.time()
+
         try:
-            # process_orders()
-            # Сброс флага в новый день
-            if datetime.date.today() != last_check_date:
+            # reset daily flag
+            today = datetime.date.today()
+            if today != last_check_date:
                 kinopoisk_enabled = True
-                last_check_date = datetime.date.today()
-                logger.info("Новый день — флаг kinopoisk_enabled сброшен на True")
+                last_check_date = today
+                logger.info("Новый день — kinopoisk_enabled=True")
 
-            if i % 2 == 0 or i == 1:
-                safe_execute(all_show_request, "all_show_request")
-
-            safe_execute(get_show_info, "get_show_info")
-
-            if i % 10 == 0 or i == 1:
-                safe_execute(what_show_can_be_sell_pushkin_card, "what_show_can_be_sell_pushkin_card")
-
-            if kinopoisk_enabled:
-                res = safe_execute(get_kinopoisk_info, "get_kinopoisk_info")
-                if res is False:  # именно False, а не None
-                    kinopoisk_enabled = False
-
-            if i % 4 == 0 or i == 1:
-                safe_execute(all_performances_request, "all_performances_request")
-
-            safe_execute(unblock_5_min, "unblock_5_min")
-
-            # Проверяем статусы платежей
-            process_orders()
+            kinopoisk_enabled = run_tasks(i, kinopoisk_enabled, loop)
 
         except Exception as e:
-            logger.exception("Произошла ошибка в film_update_main")
-            bot.send_message(5254091301, f'Ошибка в film_update_main\n{e}')
+            logger.exception("Ошибка в film_update_main")
+            asyncio.run_coroutine_threadsafe(notify_admin(f"Ошибка в film_update_main\n{e}"), loop)
 
         finally:
-            i = 1 if i > 10000 else i + 1  # Сброс счётчика
-            time.sleep(5)
+            i = 1 if i > 10000 else i + 1
+
+            # фиксированный тик, а не просто sleep(5)
+            elapsed = time.time() - start
+            sleep_time = max(0, 5 - elapsed)
+            time.sleep(sleep_time)
 
 
-def safe_execute(func, func_name, timeout=120):
-    """Выполняет функцию с таймаутом и логированием ошибок."""
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(func)
-        try:
-            result = future.result(timeout=timeout)  # получаем результат
-            logger.info(f"Функция {func_name} выполнена успешно")
-            return result
-        except FuturesTimeout:
-            logger.error(f"Таймаут при выполнении {func_name}")
-            bot.send_message(5254091301, f'Таймаут в {func_name}')
-        except Exception as e:
-            logger.exception(f"Ошибка в {func_name}")
-            bot.send_message(5254091301, f'Ошибка в {func_name}\n{e}')
-        return None  # если ошибка — возвращаем None
+def run_tasks(i, kinopoisk_enabled, loop):
+    # safe_execute(get_show_info, "get_show_info", loop=loop)
+
+    if i % 2 == 0 or i == 1:
+        safe_execute(all_show_request, "all_show_request", loop=loop)
+
+    if i % 4 == 0 or i == 1:
+        safe_execute(all_performances_request, "all_performances_request", loop=loop)
+
+    if i % 10 == 0 or i == 1:
+        safe_execute(what_show_can_be_sell_pushkin_card, "what_show_can_be_sell_pushkin_card", loop=loop)
+
+    if kinopoisk_enabled:
+        res = safe_execute(get_kinopoisk_info, "get_kinopoisk_info", loop=loop)
+        if res is False:
+            kinopoisk_enabled = False
+
+    safe_execute(unblock_5_min, "unblock_5_min", loop=loop)
+
+    return kinopoisk_enabled
 
 
-def process_orders():
-    """Обрабатывает заказы с оплатой."""
+def safe_execute(func, name, **kwargs):
     try:
-        with psycopg2.connect(db_path) as conn:
-            with conn.cursor() as curs:
-                curs.execute("""SELECT payment_id FROM orders WHERE status = 3;""")
-                orders = curs.fetchall()
-
-        for order in orders:
-            safe_execute(lambda: check_payment_status(order[0]), "check_payment_status")
+        # logger.info(f"{name} start")
+        return func(**kwargs)
     except Exception as e:
-        logger.exception("Ошибка при получении заказов")
-        bot.send_message(5254091301, f'Ошибка при получении заказов\n{e}')
+        logger.exception(f"{name} error: {e}")
+        return None
+    # finally:
+    #     logger.info(f"{name} stop")
 
 
-def all_show_request():
-    # запрашиваем список всех show
-    params = {
-        "sp": "Wga_GetShow",
-        "df": "J"
-    }
-    response = requests.request("GET", url_kino_baza, params=params)
-    # print(response.url)
+def process_orders(loop):
+    while True:
+        try:
+            with psycopg2.connect(db_path) as conn:
+                with conn.cursor() as curs:
+                    curs.execute("SELECT payment_id FROM orders WHERE status = 3;")
+                    orders = curs.fetchall()
+
+            for order in orders:
+                asyncio.run_coroutine_threadsafe(check_payment_status(order[0]), loop)
+
+        except Exception as e:
+            logger.exception("Ошибка при получении заказов")
+            asyncio.run_coroutine_threadsafe(notify_admin(f'Ошибка при получении заказов\n{e}'), loop)
+
+        time.sleep(10)
+
+
+# ─── Обновление данных о фильмах ──────────────────────────────────────────────
+def all_show_request(loop):
+    params = {"sp": "Wga_GetShow", "df": "J"}
+    response = requests.get(url_kino_baza, params=params)
 
     if response.status_code == 200:
         try:
             with psycopg2.connect(db_path) as conn:
                 with conn.cursor() as curs:
-                    data_show = response.json()
-                    for show in data_show:
+                    for show in response.json():
                         try:
-                            show['ShowName'] = show['ShowName'].replace('&quot;', '').replace('«', '').replace('»', '')
-
-                            # logger.info(f"Вставляем show_id: {show['IdShow']}, name: {show['ShowName']}, duration: {show['Duration']}")
+                            show['ShowName'] = (
+                                show['ShowName']
+                                .replace('&quot;', '')
+                                .replace('«', '')
+                                .replace('»', '')
+                            )
                             curs.execute(
                                 """INSERT INTO show (show_id, name, duration)
                                    VALUES (%s, %s, %s)
                                    ON CONFLICT (show_id) DO NOTHING;""",
-                                (show['IdShow'], show['ShowName'], show['Duration'])
+                                (show['IdShow'], show['ShowName'], show['Duration']),
                             )
-                            curs.execute("""UPDATE show SET name = %s, duration = %s WHERE show_id = %s""",
-                                         (show['ShowName'], show['Duration'], show['IdShow']))
+                            curs.execute(
+                                "UPDATE show SET name = %s, duration = %s WHERE show_id = %s",
+                                (show['ShowName'], show['Duration'], show['IdShow']),
+                            )
                         except Exception as e:
                             logger.exception(f"Ошибка при вставке шоу {show.get('IdShow')}: {e}")
-        except json.JSONDecodeError as json_err:
-            logger.exception("Ошибка декодирования JSON")
-            bot.send_message(5254091301, f'Ошибка при декодировании JSON-ответа от сервера: {json_err}')
+        except json.JSONDecodeError as e:
+            asyncio.run_coroutine_threadsafe(notify_admin(f'Ошибка декодирования JSON в all_show_request: {e}'), loop)
         except Exception as e:
-            logger.exception("Произошла ошибка")
-            bot.send_message(5254091301, f'Ошибка базы по запросу всех show \n{e}')
+            asyncio.run_coroutine_threadsafe(notify_admin(f'Ошибка базы по запросу всех show\n{e}'), loop)
     else:
-        pass
-        bot.send_message(5254091301,
-                         f'Ошибка по запросу всех show \nВ ответ на запрос возвращается код {response.status_code}')
+        asyncio.run_coroutine_threadsafe(notify_admin(f'Ошибка all_show_request: код {response.status_code}'), loop)
 
 
-def get_show_info():
+def get_show_info(loop):
     try:
         with psycopg2.connect(db_path) as conn:
             with conn.cursor() as curs:
-                curs.execute("""SELECT show_id, name FROM show WHERE kinopoisk_id IS NULL;""")
+                curs.execute("SELECT show_id, name FROM show WHERE kinopoisk_id IS NULL;")
                 shows = curs.fetchall()
-                # print(shows)
                 for show in shows:
-                    show_id = show[0]
-                    name = show[1]
-                    # запрашиваем список всех show
-                    params = {
-                        "sp": "Wga_GetShowInfo",
-                        # 'IdBuilding': '3522',
-                        'idShow': show_id,
-                        # 'IdPerformance': '9371432',
-                        "df": "J"
-                    }
-
-                    response = requests.request("GET", url_kino_baza, params=params)
-                    # print(response.url)
-                    # logger.info(f"show_id: {show_id}, name: {name}, response.status_code: {response.status_code}")
-
+                    params = {"sp": "Wga_GetShowInfo", "idShow": show[0], "df": "J"}
+                    response = requests.get(url_kino_baza, params=params)
                     if response.status_code == 200:
-                        data_show = response.json()
-                        # print(data_show, '\n')
-                        kinopoisk_id = data_show['Remark']
+                        data = response.json()
+                        kinopoisk_id = data['Remark']
                         if kinopoisk_id == " ":
                             kinopoisk_id = None
-                        curs.execute("""UPDATE show SET kinopoisk_id = %s WHERE show_id = %s""",
-                                     (kinopoisk_id, show_id))
+                        curs.execute(
+                            "UPDATE show SET kinopoisk_id = %s WHERE show_id = %s",
+                            (kinopoisk_id, show[0]),
+                        )
                         conn.commit()
-                    else:
-                        pass
-                        # bot.send_message(5254091301, f'Ошибка по запросу Wga_GetShowInfo\nВ ответ на запрос возвращается код {response.status_code}')
-
     except Exception as e:
-        logger.exception("Произошла ошибка")
-        bot.send_message(5254091301, f'Ошибка базы по запросу всех Wga_GetShowInfo \n{e}')
+        logger.exception("Ошибка get_show_info")
+        asyncio.run_coroutine_threadsafe(notify_admin(f'Ошибка Wga_GetShowInfo\n{e}'), loop)
 
 
 def normalize_name(name: str) -> str:
-    # В нижний регистр
     name = name.lower()
-    # Убираем все символы кроме букв и цифр
     name = re.sub(r'[^\w\dа-яё]', '', name, flags=re.UNICODE)
-    # Убираем повторяющиеся пробелы (если бы оставляли пробелы)
-    # name = re.sub(r'\s+', ' ', name).strip()
     return name
 
 
-def what_show_can_be_sell_pushkin_card():
+def what_show_can_be_sell_pushkin_card(loop):
     try:
-        # берем с прокультуры все фильмы, которые можно показывать по пушкинской карте
-        params_prokultura = {
+        params = {
             "organizations": "31698",
             'limit': '100',
             'categories': 'kino',
             "isPushkinsCard": "true",
             "apiKey": "txjo5hdvmmgqs7frjb64",
-            'status': 'accepted'
+            'status': 'accepted',
         }
-
-        response = requests.request("GET", url_prokultura, params=params_prokultura)
-        # print(response.url)
+        response = requests.get(url_prokultura, params=params)
 
         if response.status_code == 200:
             data = response.json()
-            with open('data_prokult.json', 'w', encoding='utf-8') as file:
-                json.dump(data, file, indent=4, ensure_ascii=False)
-            # print(len(data['events']))
+            with open('data_prokult.json', 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4, ensure_ascii=False)
+
             accepted_films_list = []
             pu_number_list = {}
             id_procult_list = {}
-            # добавляем их в списокфильмов которые можно
+
             for event in data['events']:
                 match = re.search(r'«(.+)', event['name'])
                 try:
                     film_name = match.group(1) if match else event['name']
                     film_name = normalize_name(film_name)
                 except Exception as e:
-                    logger.exception(f"Произошла ошибка {e}")
+                    logger.exception(f"Ошибка в what_show_can_be_sell_pushkin_card: {e}")
                     continue
-
                 pu_number_list[film_name] = event['rentalCertificate'][0]
                 id_procult_list[film_name] = event['_id']
                 accepted_films_list.append(film_name)
 
             with psycopg2.connect(db_path) as conn:
                 with conn.cursor() as curs:
-                    # берем все фильмы что у нас есть, и сверяем названия со списком разрешенных.
-                    # ghb этом названия могут быть одинаковые у нескольких шоу, меняем у всех
-                    curs.execute("""SELECT DISTINCT name FROM show;""")
+                    curs.execute("SELECT DISTINCT name FROM show;")
                     shows = curs.fetchall()
-                    # print(accepted_films_list)
-                    # print(id_procult_list)
                     for show in shows:
                         film_name = normalize_name(show[0])
                         if film_name in accepted_films_list:
                             curs.execute(
-                                """UPDATE show SET pushkin_card = 1, pu_number = %s, id_procult = %s WHERE name = %s""",
-                                (pu_number_list[film_name], id_procult_list[film_name], show[0])
+                                "UPDATE show SET pushkin_card = 1, pu_number = %s, id_procult = %s WHERE name = %s",
+                                (pu_number_list[film_name], id_procult_list[film_name], show[0]),
                             )
                         else:
-                            curs.execute("""UPDATE show SET pushkin_card = 0 WHERE name = %s""", (show[0],))
-
-        # if response.status_code == 200:
-        #     data_show = response.json()
-        #     print(data_show['Remark'], '\n')
-        #     curs.execute("""UPDATE show SET kinopoisk_id = %s WHERE show_id = %s""", (data_show['Remark'], show_id))
+                            curs.execute(
+                                "UPDATE show SET pushkin_card = 0 WHERE name = %s", (show[0],)
+                            )
         else:
-            # print(response.text)
-            bot.send_message(5254091301,
-                             f'Ошибка по запросу what_show_can_be_sell_pushkin_card \nВ ответ на запрос возвращается код {response.status_code} текст {response.text}')
-
+            asyncio.run_coroutine_threadsafe(
+                notify_admin(f'Ошибка what_show_can_be_sell_pushkin_card: код {response.status_code} '
+                             f'текст {response.text}'), loop)
     except Exception as e:
-        logger.exception("Произошла ошибка")
-        bot.send_message(5254091301, f'Ошибка базы по запросу всех what_show_can_be_sell_pushkin_card \n{e}')
-        # if int(data_zu[0]['IdBuilding']):
-        #     curs.execute("""DELETE FROM cinemas""")
+        logger.exception("Ошибка what_show_can_be_sell_pushkin_card")
+        asyncio.run_coroutine_threadsafe(
+            notify_admin(f'Ошибка what_show_can_be_sell_pushkin_card\n{e}'), loop)
 
 
-def get_kinopoisk_info():
+def get_kinopoisk_info(loop):
     try:
         with psycopg2.connect(db_path) as conn:
             with conn.cursor() as curs:
                 curs.execute(
-                    """SELECT kinopoisk_id 
-                       FROM show 
-                       WHERE kinopoisk_id IS NOT NULL 
-                         AND (poster IS NULL OR poster = '');"""
+                    "SELECT kinopoisk_id FROM show "
+                    "WHERE kinopoisk_id IS NOT NULL AND (poster IS NULL OR poster = '');"
                 )
                 shows = curs.fetchall()
-
                 for show in shows:
                     kinopoisk_id = show[0]
-
-                    params = {"token": kinopoisk_token}
                     response = requests.get(
                         f'https://api.kinopoisk.dev/v1/movie/{kinopoisk_id}',
-                        params=params
+                        params={"token": kinopoisk_token},
                     )
-
-                    # Если лимит исчерпан — прекращаем выполнение
                     if response.status_code == 403:
                         try:
-                            err_data = response.json()
+                            err = response.json()
                         except Exception:
-                            err_data = {}
-
-                        message = err_data.get("message", "")
-                        if "суточный лимит" in message:
-                            logger.error(f"Суточный лимит по API Кинопоиск исчерпан. Остановка обновления.")
-                            bot.send_message(
-                                5254091301,
-                                "Суточный лимит по API Кинопоиск исчерпан. Обновление остановлено."
-                            )
-                            return False  # флаг "больше не звать сегодня"
-                        else:
-                            logger.error(f"403 ошибка: {err_data}")
-                            continue
-
+                            err = {}
+                        if "суточный лимит" in err.get("message", ""):
+                            logger.error("Суточный лимит Кинопоиск исчерпан")
+                            asyncio.run_coroutine_threadsafe(
+                                notify_admin("Суточный лимит Кинопоиск исчерпан. Обновление остановлено."), loop)
+                            return False
+                        continue
                     if response.status_code == 200:
-                        data_kinopoisk = response.json()
-                        poster = (data_kinopoisk.get("poster") or {}).get("url", "")
+                        data = response.json()
+                        poster = (data.get("poster") or {}).get("url", "")
                         curs.execute(
-                            """UPDATE show 
-                               SET description = %s, poster = %s, kp_rating = %s 
-                               WHERE kinopoisk_id = %s""",
-                            (
-                                data_kinopoisk.get('description'),
-                                poster,
-                                (data_kinopoisk.get('rating') or {}).get('kp'),
-                                kinopoisk_id
-                            )
+                            "UPDATE show SET description = %s, poster = %s, kp_rating = %s "
+                            "WHERE kinopoisk_id = %s",
+                            (data.get('description'), poster, (data.get('rating') or {}).get('kp'), kinopoisk_id),
                         )
                         conn.commit()
-                    else:
-                        logger.error(
-                            f"kinopoisk_id: {kinopoisk_id}, "
-                            f"status_code: {response.status_code}, "
-                            f"response: {response.text}"
-                        )
-                        bot.send_message(
-                            5254091301,
-                            f'Ошибка по запросу get_kinopoisk_info\nКод {response.status_code}'
-                        )
-
-        return True  # всё нормально, можно продолжать
+        return True
     except Exception as e:
-        logger.exception("Произошла ошибка")
-        bot.send_message(5254091301, f'Ошибка базы по запросу get_kinopoisk_info\n{e}')
-        return True  # тут можно вернуть True, чтобы не останавливать цикл полностью
+        logger.exception("Ошибка get_kinopoisk_info")
+        asyncio.run_coroutine_threadsafe(
+            notify_admin(f'Ошибка get_kinopoisk_info\n{e}'), loop)
+        return True
 
 
-def all_performances_request():
-    # запрашиваем список всех сеансов
-    params = {
-        "sp": "Wga_GetPerformance",
-        "df": "J"
-    }
-    response = requests.request("GET", url_kino_baza, params=params)
-    # print(response.url)
+def all_performances_request(loop):
+    params = {"sp": "Wga_GetPerformance", "df": "J"}
+    response = requests.get(url_kino_baza, params=params)
 
     if response.status_code == 200:
         try:
-            data_performances = response.json()
-            with psycopg2.connect(db_path) as data:
-                with data.cursor() as curs:
-                    # Удаляем старые данные
-                    curs.execute("""DELETE FROM performance""")
-
-                    # Вставляем новые данные в performance
-                    for data_performance in data_performances:
+            data = response.json()
+            with psycopg2.connect(db_path) as conn:
+                with conn.cursor() as curs:
+                    curs.execute("DELETE FROM performance")
+                    for item in data:
                         try:
                             try:
-                                dt = datetime.datetime.strptime(data_performance['DateTime'], "%B %d %Y %I:%M:%S:%f%p")
+                                dt = datetime.datetime.strptime(item['DateTime'], "%B %d %Y %I:%M:%S:%f%p")
                             except ValueError:
-                                dt = datetime.datetime.strptime(data_performance['DateTime'], "%b %d %Y %I:%M:%S:%f%p")
-                            date = dt.date()
-                            date_str = datetime.datetime.strftime(date, '%Y-%m-%d')
-                            time = dt.time()
-                            time_str = time.strftime('%H:%M')
-
-                            # Вставляем данные в таблицу performance, игнорируя дубликаты по performance_id
-                            curs.execute("""
-                                            INSERT INTO performance (performance_id, show_id, building_id, hallname, date, time, 
-                                                minprice, maxprice, freeplaces, building_name, hall_id) 
-                                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) 
-                                            ON CONFLICT (performance_id) DO NOTHING;
-                                        """, (data_performance['IdPerformance'], data_performance['IdShow'],
-                                              data_performance['IdBuilding'], data_performance['HallName'], date_str,
-                                              time_str,
-                                              data_performance['MinPrice'], data_performance['MaxPrice'],
-                                              data_performance['FreePlace'],
-                                              data_performance['BuildingName'], data_performance['IdHall']))
+                                dt = datetime.datetime.strptime(item['DateTime'], "%b %d %Y %I:%M:%S:%f%p")
+                            date_str = dt.strftime('%Y-%m-%d')
+                            time_str = dt.strftime('%H:%M')
+                            curs.execute(
+                                """INSERT INTO performance (
+                                    performance_id, show_id, building_id, hallname,
+                                    date, time, minprice, maxprice, freeplaces,
+                                    building_name, hall_id
+                                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                ON CONFLICT (performance_id) DO NOTHING;""",
+                                (
+                                    item['IdPerformance'], item['IdShow'], item['IdBuilding'],
+                                    item['HallName'], date_str, time_str,
+                                    item['MinPrice'], item['MaxPrice'], item['FreePlace'],
+                                    item['BuildingName'], item['IdHall'],
+                                ),
+                            )
                         except Exception as e:
-                            logger.exception(f"Произошла ошибка при вставке performance: {e}")
-                            continue
+                            logger.exception(f"Ошибка при вставке performance: {e}")
         except Exception as e:
-            logger.exception("Произошла ошибка")
-            bot.send_message(5254091301, f'Ошибка базы по запросу all_performances_request \n{e}')
+            logger.exception("Ошибка all_performances_request")
+            asyncio.run_coroutine_threadsafe(
+                notify_admin(f'Ошибка all_performances_request\n{e}'), loop)
     else:
-        bot.send_message(5254091301,
-                         f'Ошибка по запросу all_performances_request \nВ ответ на запрос возвращается код {response.status_code}')
+        asyncio.run_coroutine_threadsafe(
+            notify_admin(f'Ошибка all_performances_request: код {response.status_code}'), loop)
 
 
-def user_reg(user_id):
-    with psycopg2.connect(db_path) as data:
-        with data.cursor() as curs:
-
-            # проверяем есть ли пользователь
+# ─── Регистрация / ФИО пользователя ──────────────────────────────────────────
+def user_reg(user_id: int, chat_id: int) -> dict:
+    with psycopg2.connect(db_path) as conn:
+        with conn.cursor() as curs:
             curs.execute(
-                "SELECT user_id, buyer_id, name, surname, patronymic, agreement FROM users WHERE user_id = %s;",
-                (user_id,)
+                "SELECT user_id, max_chat_id, buyer_id, name, surname, patronymic, agreement "
+                "FROM users WHERE user_id = %s and max_chat_id = %s;",
+                (user_id, chat_id),
             )
             user = curs.fetchone()
 
             if user is None:
                 params = {
                     "sp": "Wga_Autorize",
-                    "Login": f'a{user_id}с',
-                    "Name": f"tg_id{user_id}",
+                    "Login": f'a{user_id}c',
+                    "Name": f"maxid{user_id}",
                     "IdDocument": "3165",
-                    "df": "J"
+                    "df": "J",
                 }
-
-                response = requests.get(url_kino_baza, params=params)
-
+                # buyer_id = 998277
                 try:
-                    buyer = response.json()
-                    buyer_id = buyer['IdClient']
+                    response = requests.get(url_kino_baza, params=params)
+                    response_data = response.json()
+                    buyer_id = response_data['IdClient']
                 except Exception:
+                    a = decode_unicode(response.text)
+                    logger.exception(f"Wga_Autorize: {a}")
                     buyer_id = 998277
 
-                # создаем пользователя и сразу возвращаем созданную строку
-                curs.execute("""
-                    INSERT INTO users (user_id, buyer_id)
-                    VALUES (%s, %s)
-                    RETURNING user_id, buyer_id, name, surname, patronymic, agreement;
-                """, (user_id, buyer_id))
-
+                curs.execute(
+                    "INSERT INTO users (user_id, max_chat_id, buyer_id) VALUES (%s, %s, %s) "
+                    "RETURNING user_id, max_chat_id, buyer_id, name, surname, patronymic, agreement;",
+                    (user_id, chat_id, buyer_id),
+                )
                 user = curs.fetchone()
 
-            # возвращаем объект из БД
             return {
                 "user_id": user[0],
-                "buyer_id": user[1],
-                "name": user[2],
-                "surname": user[3],
-                "patronymic": user[4],
-                "agreement": user[5],
+                "max_chat_id": user[1],
+                "buyer_id": user[2],
+                "name": user[3],
+                "surname": user[4],
+                "patronymic": user[5],
+                "agreement": user[6],
             }
 
 
-def user_fio_save(user_id, name, surname, patronymic, agreement):
-    with psycopg2.connect(db_path) as data:
-        with data.cursor() as curs:
-
-            # Проверяем, есть ли пользователь
-            curs.execute(
-                "SELECT user_id FROM users WHERE user_id = %s;",
-                (user_id,)
-            )
-            user = curs.fetchone()
-
-            # Если нет — создаём
-            if user is None:
+def user_fio_save(user_id: int, chat_id: int, name: str, surname: str, patronymic: str, agreement: bool) -> dict:
+    with psycopg2.connect(db_path) as conn:
+        with conn.cursor() as curs:
+            curs.execute("SELECT user_id, max_chat_id FROM users WHERE user_id = %s and max_chat_id = %s;",
+                         (user_id, chat_id,))
+            if curs.fetchone() is None:
                 params = {
                     "sp": "Wga_Autorize",
-                    "Login": f'a{user_id}с',
-                    "Name": f"tg_id{user_id}",
+                    "Login": f'a{user_id}c',
+                    "Name": f"maxid{user_id}",
                     "IdDocument": "3165",
-                    "df": "J"
+                    "df": "J",
                 }
-
-                response = requests.get(url_kino_baza, params=params)
-
                 try:
-                    buyer = response.json()
-                    buyer_id = buyer['IdClient']
+                    buyer_id = requests.get(url_kino_baza, params=params).json()['IdClient']
                 except Exception:
+                    logger.exception("user_fio_save")
                     buyer_id = 998277
+                curs.execute(
+                    "INSERT INTO users (user_id, max_chat_id, buyer_id) VALUES (%s, %s, %s);",
+                    (user_id, chat_id, buyer_id),
+                )
 
-                curs.execute("""
-                    INSERT INTO users (user_id, buyer_id)
-                    VALUES (%s, %s);
-                """, (user_id, buyer_id))
-
-            # Обновляем ФИО и согласие
-            curs.execute("""
-                UPDATE users
-                SET name = %s,
-                    surname = %s,
-                    patronymic = %s,
-                    agreement = %s
-                WHERE user_id = %s
-                RETURNING user_id, buyer_id, name, surname, patronymic, agreement;
-            """, (name, surname, patronymic, agreement, user_id))
-
-            updated_user = curs.fetchone()
-
-            data.commit()
-
+            curs.execute(
+                """UPDATE users SET name=%s, surname=%s, patronymic=%s, agreement=%s
+                   WHERE user_id=%s and max_chat_id = %s
+                   RETURNING user_id, max_chat_id, buyer_id, name, surname, patronymic, agreement;""",
+                (name, surname, patronymic, agreement, user_id, chat_id),
+            )
+            user = curs.fetchone()
+            conn.commit()
             return {
-                "user_id": updated_user[0],
-                "buyer_id": updated_user[1],
-                "name": updated_user[2],
-                "surname": updated_user[3],
-                "patronymic": updated_user[4],
-                "agreement": updated_user[5],
+                "user_id": user[0],
+                "max_chat_id": user[1],
+                "buyer_id": user[2],
+                "name": user[3],
+                "surname": user[4],
+                "patronymic": user[5],
+                "agreement": user[6],
             }
 
 
-def validate_pochta_bank(
-        buyer_info,
-        rrn,
-        event_id,
-        place_id,
-        event_session_timestamp,
-        term_inst_id="11132",
-        organization_id="31698",
-        client_buy_ip_address="0.0.0.0",
-):
-    query_params = {
-        "online": "false"  # "true" если тест, иначе "false"
-    }
+# ─── Валидация Почта Банк ─────────────────────────────────────────────────────
+def validate_pochta_bank(buyer_info, rrn, event_id, place_id, event_session_timestamp,
+                         term_inst_id="11132", organization_id="31698",
+                         client_buy_ip_address="0.0.0.0"):
     buyer_hash = hashlib.sha512(buyer_info.encode('utf-8')).hexdigest()
     json_data = {
         "buyer": buyer_hash,
         "termInstId": term_inst_id,
-        "rrn": rrn,  # замените на реальный RRN транзакции
-        "eventId": event_id,  # идентификатор мероприятия
-        "placeId": place_id,  # идентификатор места проведения
-        "organizationId": organization_id,  # идентификатор организатора мероприятия
-        "eventSessionTimestamp": event_session_timestamp,  # UNIX-время начала сеанса (замените на нужное значение)
-        "clientBuyIpAddress": client_buy_ip_address,  # IP-адрес покупателя, либо 0.0.0., если онлайн продажа
+        "rrn": rrn,
+        "eventId": event_id,
+        "placeId": place_id,
+        "organizationId": organization_id,
+        "eventSessionTimestamp": event_session_timestamp,
+        "clientBuyIpAddress": client_buy_ip_address,
     }
     headers = {
         "Authorization": pochta_bank_token,
-        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0',
     }
-    response = requests.post(validation_url, headers=headers, params=query_params, json=json_data)
-
-    # Проверка ответа
+    response = requests.post(
+        validation_url, headers=headers,
+        params={"online": "false"}, json=json_data
+    )
     if response.status_code == 200:
-        response = response.json()
-        result = response.get("result")
+        resp = response.json()
+        result = resp.get("result")
         if result == "ACCEPTED":
             return True, ""
-
         if result == "DECLINED":
-            print("Транзакция отклонена")
-            reason = response.get("reason")
-            reason_text = ""
-            if reason == "PERSONAL_DATA":
-                reason_text = "Несоответствие ФИО покупателя билета ФИО держателя карты"
-            elif reason == "EVENT":
-                reason_text = "Какая-то проблема с параметрами мероприятия"
-            elif reason == "MULTISESSION":
-                reason_text = "Попытка купить более одного билета на один сеанс мероприятия"
-            elif reason == "PRICE":
-                reason_text = "Некорректная стоимость билета "
-            elif reason == "OTHER":
-                reason_text = ""
-
-            return False, reason_text
+            reason_map = {
+                "PERSONAL_DATA": "Несоответствие ФИО покупателя ФИО держателя карты",
+                "EVENT": "Проблема с параметрами мероприятия",
+                "MULTISESSION": "Попытка купить более одного билета на один сеанс",
+                "PRICE": "Некорректная стоимость билета",
+                "OTHER": "",
+            }
+            return False, reason_map.get(resp.get("reason", "OTHER"), "")
     else:
         logger.info(f"validate_pochta_bank {response.status_code=}, {response.text=}")
         return False, "400"
 
 
-def send_xml_to_ekinobilet(
-        performance_data,
-        show_data,
-        payment,
-        fond_kino_id,
-        place,
-        row,
-        price,
-        payment_id,
-        order_id,
-):
+# ─── Отправка XML в Министерство ─────────────────────────────────────────────
+async def send_xml_to_ekinobilet(performance_data, show_data, payment, fond_kino_id,
+                                 place, row, price, payment_id, order_id):
     try:
-        ##отправка в министерство отчета о продаже
         import xml.etree.ElementTree as ET
-        # print(performance_data)
+        await notify_admin(f'Проверка отправки')
+
         building_name = performance_data[6]
         id_procult = show_data[2]
-        seans_date = f'''{performance_data[8].replace('-', '')} {performance_data[9]}'''
+        seans_date = f"{performance_data[8].replace('-', '')} {performance_data[9]}"
         pu_number = show_data[0]
         film_name = show_data[1]
         hall_name = performance_data[3]
-        # выясняем время продажи
+
         delta = datetime.timedelta(hours=7)
         today = datetime.datetime.now(datetime.timezone.utc) + delta
         sale_date = today.strftime('%Y%m%d %H:%M:%S')
         doc_date = today.strftime('%Y%m%d_%H%M%S')
-        # rrn = sber['authRefNum']
         rrn = payment.authorization_details.rrn
-        # # Создаем структуру XML
-        root = ET.Element('seans')
-        root.set('ver', '3.2.0')
-        root.set('org_id', str(fond_kino_id))
-        root.set('showroom', str(hall_name))
-        root.set('seans_date', str(seans_date))
-        root.set('pu_number', str(pu_number))
-        root.set('format', '2D')
-        root.set('seans_title', str(film_name))
-        root.set('event_id', str(id_procult))
 
-        form = ET.SubElement(root, 'form')
+        root_el = ET.Element('seans')
+        root_el.set('ver', '3.2.0')
+        root_el.set('org_id', str(fond_kino_id))
+        root_el.set('showroom', str(hall_name))
+        root_el.set('seans_date', str(seans_date))
+        root_el.set('pu_number', str(pu_number))
+        root_el.set('format', '2D')
+        root_el.set('seans_title', str(film_name))
+        root_el.set('event_id', str(id_procult))
+
+        form = ET.SubElement(root_el, 'form')
         form.set('place_x', str(place))
         form.set('place_y', str(row))
         form.set('section', str(hall_name))
@@ -611,58 +521,67 @@ def send_xml_to_ekinobilet(
         form.set('terminal_id', '26485891')
         form.set('terminal_owner', '5402052576')
 
-        xml_data = ET.tostring(root, encoding='utf-8')
-        xml_file_name = os.path.join(root_path, "xml_files", f'ekb_{fond_kino_id}_{doc_date}145.xml')
-        # logger.info(xml_file_name)
-        with open(xml_file_name, 'wb') as file:
-            # Записываем XML-данные в файл
-            file.write(xml_data)
+        xml_data = ET.tostring(root_el, encoding='utf-8')
+        xml_dir = os.path.join(root_path, "xml_files")
+        os.makedirs(xml_dir, exist_ok=True)
+        xml_file = os.path.join(xml_dir, f'ekb_{fond_kino_id}_{doc_date}145.xml')
+        with open(xml_file, 'wb') as f:
+            f.write(xml_data)
 
         try:
-            bot.send_message(5254091301, f'xml_file_name {order_id}\n{xml_file_name}')
-            bot.send_document(5254091301, open(xml_file_name, 'rb'))
+            await notify_admin(f'xml_file_name {order_id}\n{xml_file}')
+            await send_document_sync(ADMIN_ID_CHAT, ADMIN_ID, xml_file, caption=f"XML файл заказа {order_id}",
+                                     filename=os.path.basename(xml_file))
         except Exception:
-            pass
+            logger.exception("send_document_sync")
 
-        # print('xml_}', xml_data)
-        # Создаем словарь с логином и паролем
-        auth = {
-            'login': '505@mirkino.pro',
-            'password': 'pukugk',
-        }
-        # Загружаем XML-файл
-        with open(xml_file_name, 'rb') as file:
-            files = {
-                'XMLfile': file
-            }
-            for i in range(5):
+        auth = {'login': '505@mirkino.pro', 'password': 'pukugk'}
+        with open(xml_file, 'rb') as f:
+            for _ in range(5):
                 try:
-                    response = requests.post('https://ekinobilet.ru/ekbs/upload.aspx', data=auth, files=files)
+                    response = requests.post(
+                        'https://ekinobilet.ru/ekbs/upload.aspx',
+                        data=auth,
+                        files={'XMLfile': f}
+                    )
                     break
-                except Exception as e:
+                except Exception:
                     time.sleep(7)
-        # response = requests.post('https://ekinobilet.ru/ekbs/upload.aspx', data=xml_data, auth=HTTPBasicAuth('505@mirkino.pro', 'pukugk'), headers={'Content-Type': 'application/xml; charset=utf-8'})
-        # print(response.url)
-        # print(response.content.decode('utf-8'))
-        text_resp = str(response.content.decode('utf-8'))
-        # print(text_resp)
+
+        text_resp = response.content.decode('utf-8')
         if 'error' not in text_resp:
-            # print(200)
-            with psycopg2.connect(db_path) as data:
-                with data.cursor() as curs:
-                    curs.execute("""UPDATE orders SET report_sented = 1 WHERE payment_id = %s""", (payment_id,))
-
+            with psycopg2.connect(db_path) as conn:
+                with conn.cursor() as curs:
+                    curs.execute(
+                        "UPDATE orders SET report_sented = 1 WHERE payment_id = %s", (payment_id,)
+                    )
         else:
-            bot.send_message(5254091301,
-                             f'!!!!Ошибка. Заказ оплачен, но в министерство правильно не отправлен\norder_id {order_id} ошибка {text_resp} файл {xml_file_name}')
+            await notify_admin(
+                f'!!!!Ошибка отправки в министерство\n'
+                f'order_id {order_id} ошибка {text_resp} файл {xml_file}'
+            )
     except Exception as e:
-        logger.exception("Произошла ошибка")
-        bot.send_message(5254091301,
-                         f'!!!!Ошибка. Заказ оплачен, но в министерство правильно не отправлен\n{e} order_id {order_id} файл')
+        logger.exception("Ошибка send_xml_to_ekinobilet")
+        await notify_admin(f'!!!!Ошибка отправки XML\n{e} order_id {order_id}')
 
 
-# проверяем статус переданного платежа, если платеж прошел, то ставим статус ок, если нет, то отменяем, в противном случае ничего не делаем
-def check_payment_status(payment_id, report=True):
+# def _inline_url(rows: list[list[tuple[str, str]]]):
+#     return ButtonsPayload(
+#         buttons=[
+#             [
+#                 LinkButton(
+#                     text=text,
+#                     url=url,
+#                 )
+#                 for text, url in row
+#             ]
+#             for row in rows
+#         ]
+#     ).pack()
+
+
+# ─── Проверка статуса платежа ─────────────────────────────────────────────────
+async def check_payment_status(payment_id: str, report: bool = True):
     is_succeeded = False
 
     Configuration.account_id = int(youkassa_shop_id)
@@ -671,460 +590,369 @@ def check_payment_status(payment_id, report=True):
     payment = Payment.find_one(payment_id)
     payment_status = payment.status
 
-    with psycopg2.connect(db_path) as data:
-        with data.cursor() as curs:
-            curs.execute("""SELECT * FROM orders WHERE payment_id = %s""", (payment_id,))
+    with psycopg2.connect(db_path) as conn:
+        with conn.cursor() as curs:
+            curs.execute("SELECT * FROM orders WHERE payment_id = %s", (payment_id,))
             order_data = curs.fetchone()
-            curs.execute("""SELECT name, surname, patronymic FROM users WHERE user_id = %s;""", (order_data[1],))
+            curs.execute(
+                "SELECT name, surname, patronymic, max_chat_id FROM users WHERE user_id = %s;",
+                (order_data[1],)
+            )
             user = curs.fetchone()
-            fio = f"{user[1]} {user[0]} {user[2]}"
-            fio = fio.strip()
-            fio.lower().replace(" ", "")
 
+    fio = f"{user[1]} {user[0]} {user[2]}".strip()
     order_id = order_data[0]
     place_id = order_data[4]
     price = order_data[5]
     user_id = order_data[1]
+    chat_id = user[3]
     row = order_data[11]
     place = order_data[12]
     performance_id = order_data[3]
-    payment_msg_id = order_data[15]
+    payment_msg_id = order_data[15] if len(order_data) > 15 else None
 
-    # Если оплата отменена ЮКАССА
-    if payment_status in ["canceled", "succeeded", "pending", "waiting_for_capture"]:
-        if payment_status == "waiting_for_capture":
-            Payment.capture(payment_id)
+    if payment_status not in ["canceled", "succeeded", "pending", "waiting_for_capture"]:
+        await notify_admin(
+            f'!!!!!Ошибка проверки статуса заказа\n'
+            f'{payment.status} {payment.id} {order_id}'
+        )
+        return is_succeeded
 
-        elif payment_status == 'canceled':
-            params = {
-                "sp": "WgA_SetOrderToNull",
-                "idOrder": order_id,
-                "df": "J",
-            }
-            for i in range(5):
-                try:
-                    response = requests.request("GET", url_kino_baza, params=params)
-                    break
-                except Exception as e:
-                    bot.send_message(5254091301,
-                                     f'!!!!Ошибка. Заказ canceled, но отменить не вышло {e}')
-                    logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
-                    time.sleep(7)
+    if payment_status == "waiting_for_capture":
+        Payment.capture(payment_id)
 
-            with psycopg2.connect(db_path) as data:
-                with data.cursor() as curs:
-                    curs.execute("""UPDATE orders SET status = 0 WHERE payment_id = %s""", (payment_id,))
-            perf_markup = types.InlineKeyboardMarkup(row_width=5)
-            perf_webapp = types.WebAppInfo(f"{url}/kino/{performance_id}/{user_id}")  # создаем webapp
-            perf_but = types.KeyboardButton(text='Тот самый сеанс', web_app=perf_webapp)
-            perf_markup.add(perf_but)
+    elif payment_status == 'canceled':
+        params = {"sp": "WgA_SetOrderToNull", "idOrder": order_id, "df": "J"}
+        for _ in range(5):
             try:
-                bot.send_message(user_id,
-                                 f'Заказ не был оплачен вовремя.\nЕс️ли еще не передумали, то вот тот самый сеанс, можете попробовать еще раз😄',
-                                 reply_markup=perf_markup)
-            except telebot.apihelper.ApiTelegramException:
-                pass
-
-            return "canceled"
-
-        # Если оплата успешна ЮКАССА
-        elif payment_status == 'succeeded':
-            is_succeeded = True
-            is_fk_report_send = True
-            try:
-                with psycopg2.connect(db_path) as data:
-                    with data.cursor() as curs:
-                        curs.execute(
-                            """SELECT payment_id, payment_link, user_id, price, row, place, performance_id FROM orders WHERE order_id = %s""",
-                            (order_id,))
-                        order = curs.fetchone()
-
-                        curs.execute(
-                            """SELECT hallname, date, time, show_id, building_id FROM performance WHERE performance_id = %s""",
-                            (order[6],))
-                        performance = curs.fetchone()
-
-                        curs.execute(
-                            """SELECT name FROM show WHERE show_id = %s""",
-                            (performance[3],))
-                        show = curs.fetchone()
-
-                        curs.execute(
-                            """SELECT city FROM cinemas WHERE building_id = %s""",
-                            (performance[4],))
-                        cinema = curs.fetchone()
-
-                        user_id = order[2]
-                        price = order[3]
-                        row = order[4]
-                        place = order[5]
-
-                        hallname = performance[0]
-                        date = performance[1]
-                        time_ = performance[2]
-                        name = show[0]
-                        city = cinema[0]
-
-                        # Преобразуем дату из строки в объект datetime
-                        date_obj = datetime.datetime.strptime(date, "%Y-%m-%d")
-
-                        # Словарь с русскими названиями месяцев
-                        months = {
-                            1: "января", 2: "февраля", 3: "марта", 4: "апреля",
-                            5: "мая", 6: "июня", 7: "июля", 8: "августа",
-                            9: "сентября", 10: "октября", 11: "ноября", 12: "декабря"
-                        }
-
-                        # Формируем красивую дату
-                        date_ru = f"{date_obj.day} {months[date_obj.month]} {date_obj.year}"
-
-                        # Пример: объединяем с временем
-                        date_time_ru = f"{date_ru} {time_}"
-
-                        # Загружаем шаблон
-                        template_path = "Шаблон билета.docx"
-                        doc = Document(template_path)
-
-                        # Берём текущее UTC время
-                        now_utc = datetime.datetime.utcnow()
-
-                        # Создаём дельту +7 часов
-                        delta = datetime.timedelta(hours=7)
-
-                        # Применяем дельту, получаем время в UTC+7
-                        now_plus7 = now_utc + delta
-
-                        # Если нужно только дату
-                        purchase_date_ru = f"{now_plus7.day} {months[now_plus7.month]} {now_plus7.year} {now_plus7.hour:02}:{now_plus7.minute:02}"
-
-                        # Словарь с данными для подстановки
-                        replace_dict = {
-                            "{city}": city,
-                            "{cinema}": hallname,
-                            "{number}": str(order_id),
-                            "{date}": purchase_date_ru,
-                            "{cinema_date}": date_time_ru,
-                            "{name}": name,
-                            "{row}": str(row),
-                            "{place}": str(place),
-                            "{price}": str(price),
-                            "{fio}": fio
-                        }
-
-                        def replace_placeholder_safe(paragraph, replace_dict):
-                            """
-                            Заменяет плейсхолдеры даже если они разбиты на несколько run,
-                            при этом НЕ удаляет картинки и не ломает структуру параграфа.
-                            """
-
-                            # Собираем весь текст параграфа
-                            full_text = ''.join(run.text for run in paragraph.runs if run.text)
-
-                            replaced = False
-                            for key, value in replace_dict.items():
-                                if key in full_text:
-                                    full_text = full_text.replace(key, value)
-                                    replaced = True
-
-                            if not replaced:
-                                return  # ничего менять не нужно
-
-                            text_index = 0
-
-                            for run in paragraph.runs:
-                                if run.text:
-                                    length = len(run.text)
-                                    run.text = full_text[text_index:text_index + length]
-                                    text_index += length
-
-                            # Если новый текст длиннее старого — добавим остаток в последний текстовый run
-                            if text_index < len(full_text):
-                                for run in reversed(paragraph.runs):
-                                    if run.text:
-                                        run.text += full_text[text_index:]
-                                        break
-
-                        # Применяем к параграфам
-                        for paragraph in doc.paragraphs:
-                            replace_placeholder_safe(paragraph, replace_dict)
-
-                        # Таблицы
-                        for table in doc.tables:
-                            for row_cells in table.rows:
-                                for cell in row_cells.cells:
-                                    for paragraph in cell.paragraphs:
-                                        replace_placeholder_safe(paragraph, replace_dict)
-
-                        # Сохраняем документ в буфер памяти, чтобы не писать на диск
-                        file_stream = BytesIO()
-                        doc.save(file_stream)
-                        file_stream.seek(0)
-
-                        # Пути к временным файлам
-                        docx_path = f"/tmp/Билет_№{order_id}.docx"
-                        pdf_path = f"/tmp/Билет_№{order_id}.pdf"
-
-                        # Сохраняем docx на диск
-                        doc.save(docx_path)
-
-                        # Конвертируем в PDF через LibreOffice (headless)
-                        subprocess.run([
-                            "libreoffice",
-                            "--headless",
-                            "--convert-to", "pdf",
-                            docx_path,
-                            "--outdir", "/tmp"
-                        ], check=True)
-
-                        # Читаем PDF в BytesIO для отправки
-                        pdf_stream = BytesIO()
-                        with open(pdf_path, "rb") as f:
-                            pdf_stream.write(f.read())
-                        pdf_stream.seek(0)
-
-                        msg_text = (
-                            "<b>✅ Заказ оплачен</b>\n\n"
-                            f"<b>Заказ №:</b> {order_id}\n"
-                            f"<b>Сеанс:</b> {name}\n"
-                            f"<b>Кинотеатр:</b> {hallname} ({city})\n"
-                            f"<b>Дата и время сеанса:</b> {date_time_ru}\n"
-                            f"<b>Ряд / Место:</b> {row} / {place}\n"
-                            f"<b>Цена:</b> {price} р.\n\n"
-                            "👇 Ваш билет ниже 👇"
-                        )
-
-                        try:
-                            bot.send_message(
-                                user_id,
-                                msg_text,
-                                parse_mode="HTML",
-                            )
-                            bot.send_document(
-                                user_id,
-                                pdf_stream,
-                                caption=f"Ваш билет №{order_id}",
-                                visible_file_name=f"Билет_№{order_id}.pdf"
-                            )
-                        except telebot.apihelper.ApiTelegramException as e:
-                            logger.exception("telebot.apihelper.ApiTelegramException")
-                        except Exception as e:
-                            logger.exception("telebot.apihelper.ApiTelegramException")
-
-                        try:
-                            # Опционально: удаляем временные файлы
-                            os.remove(docx_path)
-                            os.remove(pdf_path)
-                        except Exception:
-                            logger.exception("remove")
-
-                params = {  # создаем оплату в базе миркино
-                    "sp": "WgA_AddPayment",
-                    "IdOrder": order_id,
-                    "Amount": price,
-                    "IdPaymentMethod": 11,
-                    "idUser": 1,
-                    "df": "J"}
-                for i in range(5):
-                    try:
-                        response = requests.request("GET", url_kino_baza, params=params)
-                        break
-                    except Exception as e:
-                        time.sleep(7)
-                payment_kino = response.json()
-                kino_add_payment_id = payment_kino['IdPayment']
-                with psycopg2.connect(db_path) as data:
-                    with data.cursor() as curs:
-                        try:
-                            kino_add_payment_id = int(kino_add_payment_id)
-                            curs.execute(
-                                """UPDATE orders SET status = 1, kino_add_payment_id = %s WHERE payment_id = %s""",
-                                (kino_add_payment_id, payment_id))
-                        except ValueError:
-                            curs.execute("""UPDATE orders SET status = 1 WHERE payment_id = %s""",
-                                         (payment_id,))
-
-                        curs.execute("""SELECT * FROM performance WHERE performance_id = %s""",
-                                     (performance_id,))
-                        performance_data = curs.fetchone()
-
-                        curs.execute("""SELECT fond_kino_id FROM cinemas WHERE building_id = %s""",
-                                     (performance_data[2],))
-                        fond_kino_id = curs.fetchone()[0]
-
-                        curs.execute("""SELECT pu_number, name, id_procult FROM show WHERE show_id = %s""",
-                                     (performance_data[1],))
-                        show_data = curs.fetchone()
-
-                        curs.execute("""SELECT report_sented FROM orders WHERE payment_id = %s""",
-                                     (payment_id,))
-                        is_fk_report_send = curs.fetchone()[0]
-            except TypeError:
-                bot.send_message(5254091301,
-                                 f'!!!!Ошибка. Заказ оплачен, но оформить его правильно не вышло\n Я его пропускаю, вот данные клиента и заказа, свяжитесь с ним:order_id {order_data[0]}\nuser_id_tg {order_data[1]}\nperformance {order_data[3]}\nplace_id {order_data[4]}\nряд {order_data[11]}\nместо {order_data[12]}\npayment_id {order_data[6]}')
-                # Антон
-                if report:
-                    bot.send_message(1013689498,
-                                     f'!!!!Ошибка. Заказ оплачен, но оформить его правильно не вышло\n Я его пропускаю, вот данные клиента и заказа, свяжитесь с ним:order_id {order_data[0]}\nuser_id_tg {order_data[1]}\nperformance {order_data[3]}\nplace_id {order_data[4]}\nряд {order_data[11]}\nместо {order_data[12]}\npayment_id {order_data[6]}')
-                with psycopg2.connect(db_path) as data:
-                    with data.cursor() as curs:
-                        curs.execute("""UPDATE orders SET status = 4 WHERE payment_id = %s""", (payment_id,))
+                requests.get(url_kino_baza, params=params)
+                break
             except Exception as e:
-                logger.exception("Произошла ошибка")
-                bot.send_message(5254091301,
-                                 f'!!!!Ошибка. Заказ оплачен, но оформить его правильно не вышло\n{e}\nОтвет на запрос WgA_AddPayment {response.text}, статус {response}')
+                await notify_admin(f'!!!!Ошибка отмены заказа {order_id}: {e}')
+                time.sleep(7)
 
-            if not is_fk_report_send:
-                send_xml_to_ekinobilet(
-                    performance_data,
-                    show_data,
-                    payment,
-                    fond_kino_id,
-                    place,
-                    row,
-                    price,
-                    payment_id,
-                    order_id,
-                )
+        with psycopg2.connect(db_path) as conn:
+            with conn.cursor() as curs:
+                curs.execute("UPDATE orders SET status = 0 WHERE payment_id = %s", (payment_id,))
 
-            rrn = payment.authorization_details.rrn
+        await send_message_sync(
+            chat_id,
+            user_id,
+            f'Заказ не был оплачен вовремя.',
+        )
+        return "canceled"
 
-            with psycopg2.connect(db_path) as data:
-                with data.cursor() as curs:
-                    curs.execute("""SELECT date, time, show_id FROM performance where performance_id = %s""",
-                                 (performance_id,))
+    elif payment_status == 'succeeded':
+        is_succeeded = True
+        is_fk_report_send = True
+
+        try:
+            with psycopg2.connect(db_path) as conn:
+                with conn.cursor() as curs:
+                    curs.execute(
+                        "SELECT payment_id, payment_link, user_id, price, row, place, performance_id "
+                        "FROM orders WHERE order_id = %s", (order_id,)
+                    )
+                    order = curs.fetchone()
+
+                    curs.execute(
+                        "SELECT hallname, date, time, show_id, building_id "
+                        "FROM performance WHERE performance_id = %s", (order[6],)
+                    )
                     performance = curs.fetchone()
-                    curs.execute("""SELECT id_procult FROM show where show_id = %s""", (performance[2],))
+
+                    curs.execute("SELECT name FROM show WHERE show_id = %s", (performance[3],))
+                    show = curs.fetchone()
+
+                    curs.execute("SELECT city FROM cinemas WHERE building_id = %s", (performance[4],))
+                    cinema = curs.fetchone()
+
+                    user_id = order[2]
+                    price = order[3]
+                    row = order[4]
+                    place = order[5]
+                    hallname = performance[0]
+                    date = performance[1]
+                    time_ = performance[2]
+                    name = show[0]
+                    city = cinema[0]
+
+                    months = {
+                        1: "января", 2: "февраля", 3: "марта", 4: "апреля",
+                        5: "мая", 6: "июня", 7: "июля", 8: "августа",
+                        9: "сентября", 10: "октября", 11: "ноября", 12: "декабря",
+                    }
+                    date_obj = datetime.datetime.strptime(date, "%Y-%m-%d")
+                    date_ru = f"{date_obj.day} {months[date_obj.month]} {date_obj.year}"
+                    date_time_ru = f"{date_ru} {time_}"
+
+                    # Генерация PDF-билета
+                    template_path = os.path.join(root_path, "Шаблон билета.docx")
+                    doc = Document(template_path)
+
+                    now_plus7 = datetime.datetime.utcnow() + datetime.timedelta(hours=7)
+                    purchase_date_ru = (
+                        f"{now_plus7.day} {months[now_plus7.month]} {now_plus7.year} "
+                        f"{now_plus7.hour:02}:{now_plus7.minute:02}"
+                    )
+
+                    replace_dict = {
+                        "{city}": city, "{cinema}": hallname,
+                        "{number}": str(order_id), "{date}": purchase_date_ru,
+                        "{cinema_date}": date_time_ru, "{name}": name,
+                        "{row}": str(row), "{place}": str(place),
+                        "{price}": str(price), "{fio}": fio,
+                    }
+
+                    def replace_placeholder_safe(paragraph, rd):
+                        full_text = ''.join(r.text for r in paragraph.runs if r.text)
+                        replaced = False
+                        for key, value in rd.items():
+                            if key in full_text:
+                                full_text = full_text.replace(key, value)
+                                replaced = True
+                        if not replaced:
+                            return
+                        idx = 0
+                        for run in paragraph.runs:
+                            if run.text:
+                                length = len(run.text)
+                                run.text = full_text[idx:idx + length]
+                                idx += length
+                        if idx < len(full_text):
+                            for run in reversed(paragraph.runs):
+                                if run.text:
+                                    run.text += full_text[idx:]
+                                    break
+
+                    for paragraph in doc.paragraphs:
+                        replace_placeholder_safe(paragraph, replace_dict)
+                    for table in doc.tables:
+                        for trow in table.rows:
+                            for cell in trow.cells:
+                                for paragraph in cell.paragraphs:
+                                    replace_placeholder_safe(paragraph, replace_dict)
+
+                    docx_path = f"/tmp/Билет_№{order_id}.docx"
+                    pdf_path = f"/tmp/Билет_№{order_id}.pdf"
+                    doc.save(docx_path)
+
+                    subprocess.run(
+                        ["libreoffice", "--headless", "--convert-to", "pdf",
+                         docx_path, "--outdir", "/tmp"],
+                        check=True,
+                    )
+
+                    msg_text = (
+                        "✅ Заказ оплачен\n\n"
+                        f"Заказ №: {order_id}\n"
+                        f"Сеанс: {name}\n"
+                        f"Кинотеатр: {hallname} ({city})\n"
+                        f"Дата и время сеанса: {date_time_ru}\n"
+                        f"Ряд / Место: {row} / {place}\n"
+                        f"Цена: {price} р.\n\n"
+                        "👇 Ваш билет ниже 👇"
+                    )
+                    await send_message_sync(chat_id, user_id, msg_text)
+                    await send_document_sync(
+                        chat_id, user_id, pdf_path,
+                        caption=f"Ваш билет №{order_id}",
+                        filename=f"Билет_№{order_id}.pdf",
+                    )
+
+                    try:
+                        os.remove(docx_path)
+                        os.remove(pdf_path)
+                    except Exception:
+                        logger.exception("Ошибка удаления временных файлов")
+
+                    # Добавляем оплату в МирКино
+                    params = {
+                        "sp": "WgA_AddPayment",
+                        "IdOrder": order_id,
+                        "Amount": price,
+                        "IdPaymentMethod": 11,
+                        "idUser": 1,
+                        "df": "J",
+                    }
+                    for _ in range(5):
+                        try:
+                            resp = requests.get(url_kino_baza, params=params)
+                            break
+                        except Exception:
+                            time.sleep(7)
+                    payment_kino = resp.json()
+                    kino_add_payment_id = payment_kino['IdPayment']
+
+                    with psycopg2.connect(db_path) as conn2:
+                        with conn2.cursor() as curs2:
+                            try:
+                                curs2.execute(
+                                    "UPDATE orders SET status = 1, kino_add_payment_id = %s "
+                                    "WHERE payment_id = %s",
+                                    (int(kino_add_payment_id), payment_id),
+                                )
+                            except (ValueError, TypeError):
+                                curs2.execute(
+                                    "UPDATE orders SET status = 1 WHERE payment_id = %s",
+                                    (payment_id,),
+                                )
+
+                            curs2.execute(
+                                "SELECT * FROM performance WHERE performance_id = %s",
+                                (performance_id,)
+                            )
+                            performance_data = curs2.fetchone()
+
+                            curs2.execute(
+                                "SELECT fond_kino_id FROM cinemas WHERE building_id = %s",
+                                (performance_data[2],)
+                            )
+                            fond_kino_id = curs2.fetchone()[0]
+
+                            curs2.execute(
+                                "SELECT pu_number, name, id_procult FROM show WHERE show_id = %s",
+                                (performance_data[1],)
+                            )
+                            show_data = curs2.fetchone()
+
+                            curs2.execute(
+                                "SELECT report_sented FROM orders WHERE payment_id = %s", (payment_id,)
+                            )
+                            is_fk_report_send = curs2.fetchone()[0]
+
+        except TypeError:
+            err_msg = (
+                f'!!!!Ошибка оформления заказа\n'
+                f'order_id {order_data[0]}\nuser_id {order_data[1]}\n'
+                f'performance {order_data[3]}\nplace_id {order_data[4]}\n'
+                f'ряд {order_data[11]}\nместо {order_data[12]}\n'
+                f'payment_id {order_data[6]}'
+            )
+            await notify_admin(err_msg)
+            if report:
+                await notify_admin(err_msg, admin_2=True)
+            with psycopg2.connect(db_path) as conn:
+                with conn.cursor() as curs:
+                    curs.execute(
+                        "UPDATE orders SET status = 4 WHERE payment_id = %s", (payment_id,)
+                    )
+        except Exception as e:
+            logger.exception("Ошибка при обработке succeeded")
+            await notify_admin(f'!!!!Ошибка оформления succeeded\n{e}')
+
+        if not is_fk_report_send:
+            await send_xml_to_ekinobilet(
+                performance_data, show_data, payment, fond_kino_id,
+                place, row, price, payment_id, order_id,
+            )
+
+        # Валидация Почта Банк
+        try:
+            rrn = payment.authorization_details.rrn
+            with psycopg2.connect(db_path) as conn:
+                with conn.cursor() as curs:
+                    curs.execute(
+                        "SELECT date, time, show_id FROM performance WHERE performance_id = %s",
+                        (performance_id,)
+                    )
+                    perf = curs.fetchone()
+                    curs.execute("SELECT id_procult FROM show WHERE show_id = %s", (perf[2],))
                     event_id = curs.fetchone()[0]
 
-            date_start = performance[0]
-            date_end = performance[1]
-            event_id = event_id
-            date_time_str = f'{date_start} {date_end}'
-            # Преобразование строки в объект datetime
-            date_time_obj = datetime.datetime.strptime(date_time_str, '%Y-%m-%d %H:%M')
-
-            # Преобразование datetime в UNIX timestamp
+            date_time_obj = datetime.datetime.strptime(f'{perf[0]} {perf[1]}', '%Y-%m-%d %H:%M')
             event_session_timestamp = int(time.mktime(date_time_obj.timetuple()))
 
-            buyer_info = fio
-
             ok, text = validate_pochta_bank(
-                buyer_info=buyer_info,
-                rrn=rrn,
-                event_id=event_id,
-                place_id=place_id,
-                event_session_timestamp=event_session_timestamp,
+                buyer_info=fio, rrn=rrn, event_id=event_id,
+                place_id=place_id, event_session_timestamp=event_session_timestamp,
             )
             if not ok:
                 if text == "400":
-                    return
-
-                send_xml_to_ekinobilet(
-                    performance_data,
-                    show_data,
-                    payment,
-                    fond_kino_id,
-                    place,
-                    row,
-                    -price,
-                    payment_id,
-                    order_id,
+                    return is_succeeded
+                await send_xml_to_ekinobilet(
+                    performance_data, show_data, payment, fond_kino_id,
+                    place, row, -price, payment_id, order_id,
                 )
-                bot.send_message(
+                await send_message_sync(
+                    chat_id,
                     user_id,
                     f"Извините, возникла ошибка, деньги вернутся на вашу карту.\n{text}",
                 )
-
-    else:  # если есть ошибка
-        bot.send_message(5254091301,
-                         f'''!!!!!Ошибка в запросе юкассу о проверке статуса заказа\n{payment.status} {payment.id} {order_id}''')
+        except Exception:
+            logger.exception("Ошибка валидации Почта Банк")
 
     return is_succeeded
 
 
-def unblock_all(user_id, performance_id, place_id):
-    with psycopg2.connect(db_path) as data:
-        with data.cursor() as curs:
+# ─── Разблокировка мест ───────────────────────────────────────────────────────
+def unblock_all(user_id: int, performance_id: int, place_id, loop):
+    with psycopg2.connect(db_path) as conn:
+        with conn.cursor() as curs:
             if place_id == 'all':
-                # берем все брони у пользователя на этот сеанс
                 curs.execute(
-                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = %s AND status = 2;""",
-                    (user_id,))
-                orders_to_close = curs.fetchall()
+                    "SELECT performance_id, place_id, buyer_id, order_id FROM orders "
+                    "WHERE user_id = %s AND status = 2;",
+                    (user_id,)
+                )
             else:
-                # берем все брони кроме place_id который нам передали
                 curs.execute(
-                    """SELECT performance_id, place_id, buyer_id, order_id FROM orders WHERE user_id = %s AND status = 2 AND place_id != %s;""",
-                    (user_id, place_id))
-                orders_to_close = curs.fetchall()
+                    "SELECT performance_id, place_id, buyer_id, order_id FROM orders "
+                    "WHERE user_id = %s AND status = 2 AND place_id != %s;",
+                    (user_id, place_id)
+                )
+            orders_to_close = curs.fetchall()
 
-            # print('11111111', orders_to_close)
-            # проходимся по всем таким броням
             for order in orders_to_close:
-                # print(order)
-                params = {
-                    "sp": "WgA_SetOrderToNull",
-                    "idOrder": order[3],
-                    "df": "J",
-                }
-                for i in range(5):
+                params = {"sp": "WgA_SetOrderToNull", "idOrder": order[3], "df": "J"}
+                for _ in range(5):
                     try:
-                        response = requests.request("GET", url_kino_baza, params=params)
+                        requests.get(url_kino_baza, params=params)
                         break
                     except Exception as e:
-                        bot.send_message(5254091301,
-                                         f'!!!!Ошибка. Заказ unblock_all, но отменить не вышло {e}')
-                        logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
+                        asyncio.run_coroutine_threadsafe(notify_admin(f'!!!!Ошибка unblock_all: {e}'), loop)
                         time.sleep(7)
-
                 curs.execute(
-                    """UPDATE orders SET status = 0 WHERE performance_id = %s AND place_id = %s AND buyer_id = %s AND user_id = %s""",
-                    (order[0], order[1], order[2], user_id))
+                    "UPDATE orders SET status = 0 "
+                    "WHERE performance_id = %s AND place_id = %s AND buyer_id = %s AND user_id = %s",
+                    (order[0], order[1], order[2], user_id)
+                )
 
 
-# check_payment_status("2ebeeb04-000f-5000-a000-109d870811c3")
-
-
-def unblock_5_min():
-    with psycopg2.connect(db_path) as data:
-        with data.cursor() as curs:
-            # берем все брони где не создан заказ и прошло 5 мин
+def unblock_5_min(loop):
+    with psycopg2.connect(db_path) as conn:
+        with conn.cursor() as curs:
             curs.execute(
-                """SELECT performance_id, place_id, buyer_id, payment_id, order_id, user_id FROM orders WHERE status = 2 AND place_locked_time < %s;""",
-                (time.time() - 300,))
-            place_to_unblock = curs.fetchall()
+                "SELECT performance_id, place_id, buyer_id, payment_id, order_id, user_id "
+                "FROM orders WHERE status = 2 AND place_locked_time < %s;",
+                (time.time() - 300,)
+            )
+            to_unblock = curs.fetchall()
 
-    # print(time.time()-900)
-    # print('11111111', place_to_unblock)
-    # проходимся по всем таким броням
-    for order in place_to_unblock:
+    for order in to_unblock:
         if order[4] is None:
-            with psycopg2.connect(db_path) as data:
-                with data.cursor() as curs:
-                    curs.execute("""UPDATE orders SET status = 0 WHERE user_id = %s AND performance_id = %s""",
-                                 (order[5], order[0]))
+            with psycopg2.connect(db_path) as conn:
+                with conn.cursor() as curs:
+                    curs.execute(
+                        "UPDATE orders SET status = 0 WHERE user_id = %s AND performance_id = %s",
+                        (order[5], order[0])
+                    )
             continue
 
         logger.info(order)
-        params = {
-            "sp": "WgA_SetOrderToNull",
-            "idOrder": order[4],
-            "df": "J",
-        }
-        for i in range(5):
+        params = {"sp": "WgA_SetOrderToNull", "idOrder": order[4], "df": "J"}
+        for _ in range(5):
             try:
-                response = requests.request("GET", url_kino_baza, params=params)
+                response = requests.get(url_kino_baza, params=params)
                 logger.info(decode_unicode(response.text))
                 break
             except Exception as e:
-                bot.send_message(5254091301,
-                                 f'!!!!Ошибка. Заказ unblock_5_min, но отменить не вышло {e}')
-                logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
+                asyncio.run_coroutine_threadsafe(notify_admin(f'!!!!Ошибка unblock_5_min: {e}'), loop)
                 time.sleep(7)
 
-        with psycopg2.connect(db_path) as data:
-            with data.cursor() as curs:
-                curs.execute("""UPDATE orders SET status = 0 WHERE order_id = %s""", (order[4],))
+        with psycopg2.connect(db_path) as conn:
+            with conn.cursor() as curs:
+                curs.execute("UPDATE orders SET status = 0 WHERE order_id = %s", (order[4],))
 
 
 def decode_unicode(data):

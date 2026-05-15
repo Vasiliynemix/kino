@@ -16,7 +16,7 @@ python-dotenv = "^1.0.1"
 yookassa = "^3.3.0"
 psycopg = "^3.2.3"
 psycopg2-binary = "^2.9.10"
-pytelegrambotapi = "^4.32.0"
+maxapi = {extras = ["webhook"], version = "^1.0.0"}
 
 
 [build-system]

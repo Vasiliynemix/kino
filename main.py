@@ -1,85 +1,38 @@
-from telebot import apihelper
-from config import proxy_url
-
-apihelper.proxy = {"https": proxy_url}
-
-import datetime
+"""
+Точка входа: MAX-бот + aiohttp webhook сервер.
+Запуск: python main.py
+"""
+import asyncio
 import os
 import re
-import sys
-import time
-
-import requests
-from dotenv import load_dotenv
-from telebot import types
-from telebot.states import State, StatesGroup
-from telebot.states.sync import StateContext
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from yookassa import Configuration, Payment
-
-# sys.path.append('/enviroments/kino')
-from config import info_log_file, bot, db_path, error_log_file, log_dir, youkassa_shop_id, youkassa_secret_key, \
-    url_kino_baza, root_path
-
-import cherrypy
-
-from pkg.log import CustomLogger
-
-CustomLogger().init_logging()
-import sql_create
-import psycopg2  # заменено sqlite3 на psycopg2
-from loguru import logger
-import base_requests
 import threading
-import telebot
+
+import psycopg2
+from aiohttp import web
+from loguru import logger
+from maxapi.context import State, StatesGroup, BaseContext
+from maxapi.context import MemoryContext
+from maxapi.types import Message, CallbackButton, MessageCallback, MessageCreated, ButtonsPayload
+from maxapi.types.attachments.buttons import InlineButtonUnion
+
+import base_requests
 import send_messages
 
+from config import (
+    bot, dp,
+    db_path,
+    info_log_file, error_log_file, log_dir,
+    WEBHOOK_HOST, WEBHOOK_PORT, WEBHOOK_URL, WEBHOOK_SECRET,
+    set_loop,
+)
+from pkg.log import CustomLogger
+
+os.makedirs(log_dir, exist_ok=True)
+CustomLogger().init_logging()
 CustomLogger().add_logger(info_log_file, __name__)
 
-threading.Thread(target=base_requests.film_update_main).start()
 
-
-@bot.message_handler(content_types=['text', 'comands'], chat_types=['private'], commands=['logs'])
-def logs_text(message):
-    if message.from_user.id != 5254091301:
-        return
-
-    try:
-        bot.send_document(message.from_user.id, open(info_log_file, 'rb'))
-        bot.send_document(message.from_user.id, open(error_log_file, 'rb'))
-
-        info_server_log_file = os.path.join(log_dir, "info_server.log")
-        bot.send_document(message.from_user.id, open(info_server_log_file, 'rb'))
-    except Exception as e:
-        logger.exception(f"Произошла ошибка {e}")
-
-
-# @bot.message_handler(content_types=['text', 'comands'], chat_types=['private'], commands=['start'])
-# def start_text(message):
-#     return
-#     args = message.text.split(" ")
-#     if len(args) <= 1:
-#         return
-#
-#     if not args[1].startswith("finishpayment"):
-#         return
-#
-#     finishpayment_data = args[1].split(",")
-#     if len(finishpayment_data) <= 1:
-#         return
-#
-#     order_id = finishpayment_data[1]
-#     try:
-#         order_id = int(order_id)
-#     except Exception:
-#         return
-#
-#     with psycopg2.connect(db_path) as conn:  # использование psycopg2 для PostgreSQL
-#         with conn.cursor() as curs:
-#             curs.execute("""SELECT payment_id FROM orders WHERE order_id = %s;""", (order_id,))
-#             performance = curs.fetchone()
-# # is_succeeded = base_requests.check_payment_status(performance[0])
-
+# ─── FSM States ───────────────────────────────────────────────────────────────
 
 class UserState(StatesGroup):
     waiting_for_first_name = State()
@@ -88,190 +41,255 @@ class UserState(StatesGroup):
     waiting_for_pd_agreement = State()
 
 
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
 def normalize_name(name: str) -> str:
-    name = name.strip().lower()
-    parts = name.split('-')
-    parts = [p.capitalize() for p in parts]
-    return "-".join(parts)
+    parts = name.strip().lower().split('-')
+    return '-'.join(p.capitalize() for p in parts)
 
 
 def validate_name(name: str) -> bool:
-    pattern = r"^[А-ЯЁ][а-яё]+(-[А-ЯЁ][а-яё]+)?$"
-    return bool(re.match(pattern, name))
+    return bool(re.match(r'^[А-ЯЁ][а-яё]+(-[А-ЯЁ][а-яё]+)?$', name))
 
 
-# First name
-@bot.message_handler(state=UserState.waiting_for_first_name)
-def get_first_name(message: types.Message, state: StateContext):
-    name = normalize_name(message.text)
-    if not validate_name(name):
-        bot.send_message(message.chat.id,
-                         "❌ Имя введено некорректно.\nИспользуйте только кириллицу.\nПример: Иван или Анна-Мария")
+# ─── Любое сообщение без активного состояния — стартовая точка ───────────────
+
+@dp.bot_started()
+@dp.message_created()
+async def any_message_handler(message: MessageCreated, context: BaseContext):
+    """
+    Обрабатываем все входящие сообщения.
+    Если пользователь в FSM-состоянии — маршрутизируем по нему.
+    Иначе — это «старт» диалога.
+    """
+    chat_id, user_id = message.get_ids()
+    state: MemoryContext = context
+    text = (message.message.body.text or '').strip()
+
+    # ── /cancel в любом состоянии ────────────────────────────────────────────
+    if text.lower() in ('/cancel', 'отмена'):
+        await state.clear()
+        await bot.send_message(chat_id,
+                               user_id,
+                               'Регистрация отменена. Напишите что-нибудь, чтобы начать снова.')
         return
 
-    state.add_data(first_name=name)
-    state.set(UserState.waiting_for_last_name)
-    bot.send_message(message.chat.id, "Введите вашу Фамилию:")
+    current_state = await state.get_state()
+    logger.info(f"{current_state=}")
 
-
-# Last name
-@bot.message_handler(state=UserState.waiting_for_last_name)
-def get_last_name(message: types.Message, state: StateContext):
-    last_name = normalize_name(message.text)
-    if not validate_name(last_name):
-        bot.send_message(message.chat.id,
-                         "❌ Фамилия введена некорректно.\nПример: Петров или Сидоров-Иванов")
+    # ── FSM: сбор имени ──────────────────────────────────────────────────────
+    if current_state == UserState.waiting_for_first_name.name:
+        name = normalize_name(text)
+        if not validate_name(name):
+            await bot.send_message(chat_id,
+                                   user_id,
+                                   '❌ Имя введено некорректно.\n'
+                                   'Используйте только кириллицу.\n'
+                                   'Пример: Иван или Анна-Мария')
+            return
+        await state.update_data(first_name=name)
+        await state.set_state(UserState.waiting_for_last_name)
+        await bot.send_message(chat_id, user_id, 'Введите вашу Фамилию:')
         return
 
-    state.add_data(last_name=last_name)
-    state.set(UserState.waiting_for_middle_name)
-    bot.send_message(message.chat.id, "Введите Отчество (или напишите «Нет»):")
+    if current_state == UserState.waiting_for_last_name:
+        last_name = normalize_name(text)
+        if not validate_name(last_name):
+            await bot.send_message(chat_id,
+                                   user_id,
+                                   '❌ Фамилия введена некорректно.\n'
+                                   'Пример: Петров или Сидоров-Иванов')
+            return
+        await state.update_data(last_name=last_name)
+        await state.set_state(UserState.waiting_for_middle_name)
+        await bot.send_message(chat_id, user_id, 'Введите Отчество (или напишите «Нет»):')
+        return
 
+    if current_state == UserState.waiting_for_middle_name:
+        if text.lower() == 'нет':
+            middle_name = ''
+        else:
+            middle_name = normalize_name(text)
+            if not validate_name(middle_name):
+                await bot.send_message(chat_id,
+                                       user_id,
+                                       '❌ Отчество введено некорректно.\n'
+                                       'Пример: Иванович\nИли напишите «Нет»')
+                return
+        await state.update_data(middle_name=middle_name)
+        data = await state.get_data()
+        full_name = ' '.join(filter(None, [
+            data.get('last_name'),
+            data.get('first_name'),
+            middle_name,
+        ]))
+        agreement_text = (
+            f'Ваши данные:\n{full_name}\n\n'
+            'Нажимая кнопку ниже, вы подтверждаете согласие на обработку '
+            'персональных данных в целях оформления билетов.'
+        )
+        await state.set_state(UserState.waiting_for_pd_agreement)
+        await bot.send_message(chat_id, user_id, agreement_text, attachments=[
+            ButtonsPayload(
+                buttons=[[
+                    CallbackButton(
+                        text="✅ Согласен на обработку ПД",
+                        payload="pd_agree"
+                    )
+                ]]
+            ).pack()
+        ])
+        return
 
-# Middle name
-@bot.message_handler(state=UserState.waiting_for_middle_name)
-def get_middle_name(message: types.Message, state: StateContext):
-    text = message.text.strip()
-    if text.lower() == "нет":
-        middle_name = ""
-    else:
-        middle_name = normalize_name(text)
-        if not validate_name(middle_name):
-            bot.send_message(message.chat.id,
-                             "❌ Отчество введено некорректно.\nПример: Иванович\nИли напишите «Нет»")
+    # ── Нет активного состояния — стартовый поток ────────────────────────────
+    try:
+        await state.clear()
+        user = base_requests.user_reg(user_id, chat_id)
+        print(user)
+
+        if user.get('name') is None:
+            await bot.send_message(
+                chat_id,
+                user_id,
+                '🎟 Для дальнейшего оформления билетов через этого бота необходимо указать ваши данные.\n\n'
+                'Пожалуйста, вводите ФИО строго так, как указано в паспорте.\n\n'
+                'Эти данные будут использоваться для формирования билетов на фильмы. '
+                'Ответственность за корректность введённых данных лежит на вас.'
+            )
+            await state.set_state(UserState.waiting_for_first_name)
+            await bot.send_message(chat_id, user_id, 'Введите ваше Имя:')
             return
 
-    state.add_data(middle_name=middle_name)
-
-    # Сбор всех данных
-    with state.data() as data:
-        full_name = f"{data.get('last_name')} {data.get('first_name')} {data.get('middle_name')}".strip()
-
-    agreement_text = (
-        f"Ваши данные:\n{full_name}\n\n"
-        "Нажимая кнопку ниже, вы подтверждаете согласие на обработку "
-        "персональных данных в целях оформления билетов."
-    )
-
-    markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("✅ Согласен на обработку ПД", callback_data="pd_agree"))
-
-    state.set(UserState.waiting_for_pd_agreement)
-    bot.send_message(message.chat.id, agreement_text, reply_markup=markup)
+        await send_messages.send_cinemas(chat_id, user_id)
+    except Exception:
+        logger.exception('Ошибка в any_message_handler')
 
 
-@bot.callback_query_handler(func=lambda call: call.data == "update_fio")
-def pd_agreement_handler(call: types.CallbackQuery, state: StateContext):
-    bot.send_message(
-        call.from_user.id,
-        "🎟 Для дальнейшего оформления билетов через этого бота необходимо указать ваши данные.\n\n"
-        "Пожалуйста, вводите ФИО строго так, как указано в паспорте.\n\n"
-        "Эти данные будут использоваться для формирования билетов на фильмы. "
-        "Ответственность за корректность введённых данных лежит на вас."
-    )
-    state.delete()
-    state.set(UserState.waiting_for_first_name)
+# ─── Callback handlers ────────────────────────────────────────────────────────
 
-    bot.send_message(call.from_user.id, "Введите ваше Имя:")
-    bot.edit_message_reply_markup(
-        chat_id=call.from_user.id, message_id=call.message.message_id
-    )
+@dp.message_callback()
+async def callback_router(callback: MessageCallback, context: BaseContext):
+    payload = callback.callback.payload or ''
+    chat_id, user_id = callback.get_ids()
+    state: MemoryContext = context
 
+    # ── Обновить ФИО ─────────────────────────────────────────────────────────
+    if payload == 'update_fio':
+        await bot.send_message(
+            chat_id,
+            user_id,
+            '🎟 Для дальнейшего оформления билетов через этого бота необходимо указать ваши данные.\n\n'
+            'Пожалуйста, вводите ФИО строго так, как указано в паспорте.\n\n'
+            'Эти данные будут использоваться для формирования билетов на фильмы. '
+            'Ответственность за корректность введённых данных лежит на вас.'
+        )
+        await state.clear()
+        await state.set_state(UserState.waiting_for_first_name)
+        await bot.send_message(chat_id, user_id, 'Введите ваше Имя:')
+        return
 
-# PD agreement callback
-@bot.callback_query_handler(func=lambda call: call.data == "pd_agree", state=UserState.waiting_for_pd_agreement)
-def pd_agreement_handler(call, state: StateContext):
-    chat_id = call.message.chat.id
-    user_id = call.from_user.id
-
-    with state.data() as data:
+    # ── Согласие на ПД ───────────────────────────────────────────────────────
+    if payload == 'pd_agree':
+        current_state = await state.get_state()
+        if current_state != UserState.waiting_for_pd_agreement.name:
+            return
+        data = await state.get_data()
         base_requests.user_fio_save(
             user_id,
-            data.get('first_name', None),
-            data.get('last_name', None),
-            data.get('middle_name', None),
+            chat_id,
+            data.get('first_name'),
+            data.get('last_name'),
+            data.get('middle_name'),
             True,
         )
+        await state.clear()
+        await bot.send_message(chat_id, user_id, '✅ Согласие принято. Регистрация завершена.')
+        await send_messages.send_cinemas(chat_id, user_id)
+        return
 
-    state.delete()
+    # ── Выбор города ─────────────────────────────────────────────────────────
+    if payload.startswith('choose_cinema '):
+        city = payload.split(' ', 1)[1]
+        with psycopg2.connect(db_path) as conn:
+            with conn.cursor() as curs:
+                curs.execute(
+                    'UPDATE users SET city = %s WHERE user_id = %s',
+                    (city, user_id),
+                )
+        await send_messages.send_dates(callback)
+        return
 
-    bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=None)
-    bot.send_message(chat_id, "✅ Согласие принято. Регистрация завершена.")
-    send_messages.send_cinemas(call.from_user.id)
+    # ── Выбор даты ───────────────────────────────────────────────────────────
+    if payload.startswith('choose_date '):
+        logger.info(f'choose_date: {payload}')
+        date = payload.split(' ', 1)[1]
+        await send_messages.send_movies(callback, date)
+        return
 
 
-# Cancel command
-@bot.message_handler(commands=["cancel"], state="*")
-def cancel(message: types.Message, state: StateContext):
-    state.delete()
-    bot.send_message(message.chat.id, "Регистрация отменена. Введите /start чтобы начать снова.")
+# ─── Webhook aiohttp handler ──────────────────────────────────────────────────
 
+async def webhook_handler(request: web.Request) -> web.Response:
+    secret = (
+            request.headers.get('X-Webhook-Secret')
+            or request.rel_url.query.get('secret', '')
+    )
+    if secret != WEBHOOK_SECRET:
+        logger.warning('Webhook: неверный секрет')
+        return web.Response(status=403)
 
-@bot.message_handler(content_types=['text'], chat_types=['private'])
-def state_machine_text(message, state: StateContext):
     try:
-        state.delete()
-        user = base_requests.user_reg(message.from_user.id)
-
-        if user.get("name") is None:
-            bot.send_message(
-                message.from_user.id,
-                "🎟 Для дальнейшего оформления билетов через этого бота необходимо указать ваши данные.\n\n"
-                "Пожалуйста, вводите ФИО строго так, как указано в паспорте.\n\n"
-                "Эти данные будут использоваться для формирования билетов на фильмы. "
-                "Ответственность за корректность введённых данных лежит на вас."
-            )
-
-            state.set(UserState.waiting_for_first_name)
-
-            bot.send_message(message.chat.id, "Введите ваше Имя:")
-            return
-
-        send_messages.send_cinemas(message.from_user.id)
-
-    except Exception as e:
-        logger.exception(f"Произошла ошибка {e}")
+        data = await request.json()
+        await dp.feed(data)
+    except Exception:
+        logger.exception('Ошибка обработки webhook update')
+    return web.Response(text='ok')
 
 
-@bot.callback_query_handler(func=lambda callback: callback.data)
-def state_machine_callback(callback):
+# ─── Регистрация webhook в MAX ────────────────────────────────────────────────
+
+async def register_webhook() -> None:
     try:
-        # берем callback.data, разбиваем по пробелу, первая часть указывает на то, именно нам с этим делать, вторая дает конкретику, что выбрал пользователь
-        callback_data = callback.data.split(' ')
-
-        # выдаем выбор даты
-        if callback_data[0] == 'choose_cinema':
-            # регистрируем пользователя
-            with psycopg2.connect(db_path) as conn:  # использование psycopg2 для PostgreSQL
-                with conn.cursor() as curs:
-                    curs.execute("""UPDATE users SET city = %s WHERE user_id = %s""",
-                                 (callback_data[1], callback.from_user.id))
-            send_messages.send_dates(callback)
-
-        # выдаем фильмы
-        elif callback_data[0] == 'choose_date':
-            logger.info(callback.data)
-            # пользователь выбрал дату, даем ему список фильмов
-            send_messages.send_movies(callback, callback_data[1])
-    except Exception as e:
-        logger.exception(f"Произошла ошибка {e}")
+        await bot.delete_webhook()
+    except Exception:
+        pass
+    webhook_full = f'{WEBHOOK_URL}'
+    await bot.subscribe_webhook(url=webhook_full, secret=WEBHOOK_SECRET)
+    logger.info(f'Webhook зарегистрирован: {webhook_full}')
 
 
-class WebhookServer(object):
-    @cherrypy.expose
-    def webhook(self):
-        length = int(cherrypy.request.headers['content-length'])
-        json_string = cherrypy.request.body.read(length).decode("utf-8")
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return ''
+# ─── Entrypoint ───────────────────────────────────────────────────────────────
+
+# start_async_loop()
+# set_main_loop()
+
+async def main() -> None:
+    loop = asyncio.get_running_loop()
+    set_loop(loop)
+    dp.storage = MemoryContext
+
+    # Фоновый поток обновления данных о фильмах
+    threading.Thread(
+        target=base_requests.film_update_main,
+        args=(loop,),
+        daemon=True
+    ).start()
+    threading.Thread(
+        target=base_requests.process_orders,
+        args=(loop,),
+        daemon=True
+    ).start()
+
+    await register_webhook()
+
+    await dp.handle_webhook(
+        bot,
+        host=WEBHOOK_HOST,
+        port=WEBHOOK_PORT,
+        path='/webhook',
+        secret=WEBHOOK_SECRET,
+    )
 
 
 if __name__ == '__main__':
-    cherrypy.config.update({
-        'server.socket_host': '127.0.0.1',
-        'server.socket_port': 8080,
-        'engine.autoreload.on': False,
-        'log.screen': False
-    })
-    cherrypy.quickstart(WebhookServer(), '/', {'/': {}})
+    asyncio.run(main())

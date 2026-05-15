@@ -1,74 +1,122 @@
-from config import *
-import telebot
-import psycopg2
-from telebot import types, util
+"""
+Функции отправки сообщений пользователям через MAX Bot API.
+WebApp Telegram удалён — вместо него отправляется прямая ссылка на сайт.
+"""
 import datetime
-import time
-import sys
-from loguru import logger
 
+import psycopg2
+from loguru import logger
+from maxapi.enums.attachment import AttachmentType
+from maxapi.types import ButtonsPayload, CallbackButton, MessageCallback, LinkButton, Attachment, OtherAttachmentPayload
+
+from config import bot, db_path, months_ru, url_server, info_log_file
 from pkg.log import CustomLogger
 
 CustomLogger().add_logger(info_log_file, __name__)
 
 
-def send_cinemas(user_id):
-    # 1 шаг, спрашиваем город
-    # берем все города, приобразовываем в кнопки и посылаем в сообщении
+def _inline(rows: list[list[tuple[str, str]]]):
+    return ButtonsPayload(
+        buttons=[
+            [
+                CallbackButton(
+                    text=text,
+                    payload=payload,
+                )
+                for text, payload in row
+            ]
+            for row in rows
+        ]
+    ).pack()
 
-    # t1 = time.time()
+
+def _inline_url(rows: list[list[tuple[str, str]]]):
+    return ButtonsPayload(
+        buttons=[
+            [
+                LinkButton(
+                    text=text,
+                    url=url,
+                )
+                for text, url in row
+            ]
+            for row in rows
+        ]
+    ).pack()
+
+
+async def send_cinemas(chat_id: int, user_id: int) -> None:
+    """Шаг 1: показать ФИО + кнопки выбора города."""
     with psycopg2.connect(db_path) as conn:
         with conn.cursor() as curs:
-            curs.execute("""SELECT DISTINCT city FROM cinemas;""")
+            curs.execute("SELECT DISTINCT city FROM cinemas;")
             cinemas = curs.fetchall()
-            curs.execute("""SELECT name, surname, patronymic FROM users where user_id = %s;""", (user_id,))
+            curs.execute(
+                "SELECT name, surname, patronymic FROM users WHERE user_id = %s;",
+                (user_id,),
+            )
             user = curs.fetchone()
 
-    city_markup = types.InlineKeyboardMarkup(row_width=1)
-    for cinema in cinemas:
-        city_but = types.InlineKeyboardButton(text=cinema[0], callback_data=f'choose_cinema {cinema[0]}')
-        city_markup.add(city_but)
-    # t2 = time.time()
+    fio_text = f"{user[1]} {user[0]} {user[2]}".strip() if user else "—"
+
     try:
-        fio = types.InlineKeyboardMarkup()
-        but = types.InlineKeyboardButton(text="Изменить ФИО", callback_data='update_fio')
-        fio.add(but)
-        bot.send_message(user_id, f"{user[1]} {user[0]} {user[2]}", reply_markup=fio)
-        bot.send_message(user_id, 'Выберите город', reply_markup=city_markup)
-    except telebot.apihelper.ApiTelegramException:
-        pass
-    # t3 = time.time()
-    # logger.info(f"Total time: {t3 - t1}, Execution time: {t2 - t1}, Sending time: {t3 - t2}")
+        await bot.send_message(chat_id, user_id, fio_text, attachments=[
+            ButtonsPayload(
+                buttons=[[
+                    CallbackButton(
+                        text="Изменить ФИО",
+                        payload="update_fio"
+                    )
+                ]]
+            ).pack()
+        ])
+    except Exception as e:
+        logger.error(f"send_cinemas fio: {e}")
+
+    city_buttons = [[(c[0], f"choose_cinema {c[0]}")] for c in cinemas]
+    try:
+        await bot.send_message(chat_id, user_id, "Выберите город", attachments=[_inline(city_buttons)])
+    except Exception as e:
+        logger.error(f"send_cinemas cities: {e}")
 
 
-def send_dates(callback):
-    # 1 шаг, спрашиваем город
-    # берем все города, приобразовываем в кнопки и посывлаем в сообщении
-    # 7 часов чтобы соблюсти часовой пояс, 14 минут чтобы соблюсти возможность продажи билетов через 15 минут после начала
+async def send_dates(callback: MessageCallback) -> None:
+    """Шаг 2: показать доступные даты сеансов."""
+
     delta = datetime.timedelta(hours=7, minutes=14)
-    today = datetime.datetime.now(datetime.timezone.utc) + delta
-    today_time = today.time().strftime('%H:%M')
-    today_date = today.date().strftime('%Y-%m-%d')
+    today_dt = datetime.datetime.now(datetime.timezone.utc) + delta
+    today_time = today_dt.time().strftime('%H:%M')
+    today_date = today_dt.date().strftime('%Y-%m-%d')
+
+    chat_id, user_id = callback.get_ids()
+
     with psycopg2.connect(db_path) as conn:
         with conn.cursor() as curs:
+
+            # --- ОРИГИНАЛЬНАЯ ЛОГИКА БЕЗ ГОРОДОВ ---
             curs.execute(
-                "SELECT DISTINCT DATE(date) FROM performance WHERE date > %s  OR (%s = date AND %s <= time) ORDER BY date ASC;",
-                (today_date, today_date, today_time))
+                """SELECT DISTINCT DATE(date)
+                   FROM performance
+                   WHERE date > %s OR (%s = date AND %s <= time)
+                   ORDER BY date ASC;""",
+                (today_date, today_date, today_time),
+            )
             dates = curs.fetchall()
 
-    # получив даты по порядку мы преобразовываем их в нужный для кнопок формат
-    date_list = [date[0] for date in dates]
-
-    # если это сегодняшняя дата, она изменилась на "Сегодня" если завтрашняя, то на "Завтра", а если ни то и ни другое, то дата 2023-05-09 преобразовалась в 9 мая
+    # --- форматирование как в оригинале ---
     delta = datetime.timedelta(hours=7)
-    today = datetime.datetime.now(datetime.timezone.utc) + delta
-    today = today.date()
+    today = (datetime.datetime.now(datetime.timezone.utc) + delta).date()
     tomorrow = today + datetime.timedelta(days=1)
 
+    date_list = [
+        d[0].strftime('%Y-%m-%d') if isinstance(d[0], datetime.date) else d[0]
+        for d in dates
+    ]
+
     formatted_dates = []
-    date_list = [d.strftime('%Y-%m-%d') if isinstance(d, datetime.date) else d for d in date_list]
     for date_str in date_list:
         date = datetime.datetime.strptime(date_str, '%Y-%m-%d').date()
+
         if date == today:
             formatted_dates.append('Сегодня')
         elif date == tomorrow:
@@ -78,107 +126,129 @@ def send_dates(callback):
             month = months_ru[date.month]
             formatted_dates.append(f"{day} {month}")
 
-    # создаем кнопки и отсылаем
-    date_markup = types.InlineKeyboardMarkup(row_width=1)
+    # --- кнопки 1 в ряд, максимум 7 (как в оригинале) ---
+    buttons = []
     i = 0
     while i < len(formatted_dates):
-        date_but = types.InlineKeyboardButton(text=formatted_dates[i], callback_data=f'choose_date {date_list[i]}')
-        date_markup.add(date_but)
+        buttons.append([
+            (formatted_dates[i], f"choose_date {date_list[i]}")
+        ])
         i += 1
         if i % 7 == 0:
             break
+
     try:
-        bot.send_message(callback.from_user.id, '*Выберите день:*', reply_markup=date_markup, parse_mode='MARKDOWN')
-    except telebot.apihelper.ApiTelegramException:
-        pass
+        if len(buttons) == 0:
+            await bot.send_message(
+                chat_id,
+                user_id,
+                f"Сеансов на ближайшее время нет"
+            )
+        else:
+            await bot.send_message(
+                chat_id,
+                user_id,
+                "Выберите день:",
+                attachments=[_inline(buttons)]
+            )
+    except Exception as e:
+        logger.error(f"send_dates: {e}")
 
 
-def send_movies(callback, date):
-    # вытаскиваем из базы все фильмы и кинотеатры, потом цикло прогоняем по фильмам и получаем все сеансы на эти фильмы в этих кинотеатрах
+async def send_movies(callback: MessageCallback, date: str) -> None:
+    """Шаг 3: показать фильмы с сеансами. Каждый сеанс — ссылка на сайт выбора мест."""
+    chat_id, user_id = callback.get_ids()
+
     try:
         with psycopg2.connect(db_path) as conn:
             with conn.cursor() as curs:
-                # получаем город который пользователь указывал ранее, потом кинотеатры этого города
-                curs.execute("""SELECT city FROM users WHERE user_id = %s;""", (callback.from_user.id,))
-                city = curs.fetchone()
-                try:
-                    curs.execute("""SELECT building_id FROM cinemas WHERE city = %s;""", (city[0],))
-                    cinemas = curs.fetchall()
-                except TypeError:  # если человек почему то не выбрал город или он не записался
-                    curs.execute("""SELECT building_id FROM cinemas WHERE city = %s;""",
-                                 ('Новосибирск',))
-                    cinemas = curs.fetchall()
-                cinemas_list = [cinema[0] for cinema in cinemas]
-                # dct разрешенные пушкинской карте фильмы
-                curs.execute("""SELECT * FROM show WHERE pushkin_card = 1;""")
+                curs.execute("SELECT city FROM users WHERE user_id = %s;", (user_id,))
+                city_row = curs.fetchone()
+                city = city_row[0] if city_row else "Новосибирск"
+
+                curs.execute("SELECT building_id FROM cinemas WHERE city = %s;", (city,))
+                cinemas_list = [r[0] for r in curs.fetchall()]
+
+                curs.execute("SELECT * FROM show WHERE pushkin_card = 1;")
                 accepted_shows = curs.fetchall()
-                somthing_sended = False
-                # 7 часов чтобы соблюсти часовой пояс, 14 минут чтобы соблюсти возможность продажи билетов через 15 минут после начала
-                delta = datetime.timedelta(hours=7, minutes=-14)
-                today = datetime.datetime.now(datetime.timezone.utc) + delta
-                today_time = today.time().strftime('%H:%M')
-                today_date = today.date().strftime('%Y-%m-%d')
+
+                delta = datetime.timedelta(hours=7, minutes=14)
+                now = datetime.datetime.now(datetime.timezone.utc) + delta
+                today_time = now.time().strftime("%H:%M")
+                today_date = now.date().strftime("%Y-%m-%d")
+
+                something_sent = False
+
                 for show in accepted_shows:
-                    query = """
-                        SELECT * FROM performance 
-                        WHERE building_id = ANY(%s) 
-                          AND show_id = %s 
-                          AND date = %s 
-                          AND freeplaces != 0 
-                          AND hall_id != 15 
-                          {time_filter} 
+                    params: list = [cinemas_list, show[0], date]
+                    time_filter = "AND time >= %s" if today_date == date else ""
+                    if today_date == date:
+                        params.append(today_time)
+
+                    query = f"""
+                        SELECT * FROM performance
+                        WHERE building_id = ANY(%s)
+                          AND show_id = %s
+                          AND date = %s
+                          AND freeplaces != 0
+                          AND hall_id != 15
+                          {time_filter}
                         ORDER BY hallname, time ASC
                     """
-
-                    params = [cinemas_list, show[0], date]
-
-                    # Добавляем фильтр времени, если это сегодняшняя дата
-                    if today_date == date:
-                        time_filter = "AND %s <= time"
-                        params.append(today_time)
-                    else:
-                        time_filter = ""
-
-                    query = query.format(time_filter=time_filter)
                     curs.execute(query, params)
                     performances = curs.fetchall()
-
-                    if performances == []:
+                    if not performances:
                         continue
-                    perf_markup = types.InlineKeyboardMarkup(row_width=5)
-                    for perf in performances:
-                        perf_webapp = types.WebAppInfo(
-                            f"{url_server}/kino/{perf[0]}/{callback.from_user.id}")  # создаем webappinfo - формат хранения url
-                        perf_but = types.KeyboardButton(text=f'{perf[3]} {perf[9]}',
-                                                        web_app=perf_webapp)  # создаем кнопку типа webapp
-                        perf_markup.add(perf_but)
-                    # отсылаем фильм с сеансами на выбранную дату
-                    # если есть фото
-                    somthing_sended = True
-                    if show[4] is not None:
-                        if show[5] != 0:
-                            text1 = f'{show[1]}\nКинопоиск {round(show[5], 1)}\n\n{show[3]}'
-                        else:
-                            text1 = f'{show[1]}\n\n{show[3]}'
-                        text = util.smart_split(text1, 1024)[0]
-                        try:
-                            bot.send_photo(callback.from_user.id, photo=show[4], caption=text, reply_markup=perf_markup)
-                        except telebot.apihelper.ApiTelegramException as e:
-                            try:
-                                bot.send_message(callback.from_user.id, {show[1]}, reply_markup=perf_markup)
-                            except telebot.apihelper.ApiTelegramException as e:
-                                logger.error(e)
-                    else:
-                        try:
-                            bot.send_message(callback.from_user.id, {show[1]}, reply_markup=perf_markup)
-                        except telebot.apihelper.ApiTelegramException as e:
-                            logger.error(e)
-                if somthing_sended is False:
-                    try:
-                        bot.send_message(callback.from_user.id,
-                                         'Кажется сеансов по заданным критериям для пушкинской карты нет, простите😔')
-                    except telebot.apihelper.ApiTelegramException:
-                        pass
 
-    except Exception as e:
-        logger.exception('-')
+                    # Каждый сеанс → кнопка с прямой ссылкой на сайт (вместо WebApp)
+                    rows = [
+                        [
+                            (
+                                f"{perf[3]} {perf[9]}",
+                                f"{url_server}/kino/{perf[0]}/{user_id}",
+                            )
+                        ]
+                        for perf in performances
+                    ]
+
+                    # 👉 если есть фото — добавляем кнопку
+                    # if show[4]:
+                    #     rows.append([
+                    #         ("📷 Открыть постер", show[4])
+                    #     ])
+
+                    perf_markup = _inline_url(rows)
+
+                    rating = show[5]
+                    desc = show[3] or ""
+                    caption = (f"{show[1]}\nКинопоиск {round(rating, 1)}\n\n{desc}"
+                               if rating else f"{show[1]}\n\n{desc}")
+                    caption = caption[:1024]
+                    something_sent = True
+
+                    try:
+                        if show[4]:
+                            photo_attachment = Attachment(
+                                type=AttachmentType.IMAGE,  # или PHOTO если есть
+                                payload=OtherAttachmentPayload(url=show[4]),
+                                bot=bot,
+                            )
+                            await bot.send_message(chat_id, user_id, caption,
+                                                   attachments=[photo_attachment, perf_markup])
+                        else:
+                            await bot.send_message(chat_id, user_id, caption, attachments=[perf_markup])
+                    except Exception as e:
+                        logger.error(f"send_movies отправка: {e}")
+                        try:
+                            await bot.send_message(chat_id, user_id, show[1], attachments=[perf_markup])
+                        except Exception as e2:
+                            logger.error(f"send_movies fallback: {e2}")
+
+                if not something_sent:
+                    await bot.send_message(
+                        chat_id,
+                        user_id,
+                        "Кажется, сеансов по заданным критериям для Пушкинской карты нет, простите😔",
+                    )
+    except Exception:
+        logger.exception("Ошибка в send_movies")

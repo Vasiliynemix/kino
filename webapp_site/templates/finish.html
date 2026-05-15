@@ -1,13 +1,124 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <title>после оплаты</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Готово</title>
+
+    <style>
+        @import url("https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap");
+
+        :root {
+          --bg:      #0c0c10;
+          --surface: #13131a;
+          --border:  #2a2a3a;
+          --accent:  #4cc9f0;
+          --accent2: #7b5ea7;
+          --text:    #dde1f0;
+          --success: #70f0b0;
+        }
+
+        * {
+          box-sizing: border-box;
+          margin: 0;
+          padding: 0;
+        }
+
+        body {
+          font-family: "DM Sans", sans-serif;
+          background: var(--bg);
+          color: var(--text);
+          min-height: 100vh;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 20px;
+        }
+
+        .page-card {
+          width: 100%;
+          max-width: 420px;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 18px;
+          padding: 50px 30px;
+          text-align: center;
+          box-shadow: 0 0 80px rgba(112,240,176,0.05), 0 8px 40px rgba(0,0,0,0.5);
+          position: relative;
+        }
+
+        .page-card::before {
+          content: "";
+          position: absolute;
+          top: 0; left: 0; right: 0;
+          height: 2px;
+          background: linear-gradient(90deg, var(--accent2), var(--success));
+          border-radius: 18px 18px 0 0;
+        }
+
+        .checkmark {
+          font-size: 3.8rem;
+          margin-bottom: 20px;
+          animation: pop 0.4s ease;
+        }
+
+        @keyframes pop {
+          from { transform: scale(0.6); opacity: 0; }
+          to   { transform: scale(1); opacity: 1; }
+        }
+
+        h1 {
+          font-family: "Syne", sans-serif;
+          font-size: 1.5rem;
+          font-weight: 800;
+          color: var(--success);
+          margin-bottom: 30px;
+        }
+
+        .btn-bot {
+          display: none;
+          padding: 14px 28px;
+          border: 1px solid var(--accent);
+          border-radius: 10px;
+          color: var(--accent);
+          text-decoration: none;
+          font-family: "Syne", sans-serif;
+          font-size: 0.85rem;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          transition: 0.2s;
+        }
+
+        .btn-bot:hover {
+          background: var(--accent);
+          color: var(--bg);
+          box-shadow: 0 0 20px rgba(76,201,240,0.3);
+        }
+
+    </style>
 </head>
+
 <body>
-    <script>
-       let tg = window.Telegram.WebApp; // получаем объект webapp телеграма 
-       tg.close()	; // закрываем вебап 
-    </script>
+
+<div class="page-card">
+    <div class="checkmark">✅</div>
+    <a href="https://max.ru/id5402026216_bot" class="btn-bot" id="botBtn">
+        Вернуться в бота
+    </a>
+</div>
+
+<script>
+    setTimeout(() => {
+      window.close();
+
+      // если не закрылось — показываем кнопку
+      setTimeout(() => {
+        document.getElementById('botBtn').style.display = 'inline-block';
+      }, 700);
+
+    }, 1200);
+</script>
+
 </body>
 </html>

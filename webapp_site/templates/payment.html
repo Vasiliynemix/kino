@@ -3,50 +3,218 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Оплата</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-</head>
-<body>
-<iframe src="{{ iframe_url }}" width="100%" height="600px"></iframe>
+    <title>Обработка</title>
 
-{% if close_webapp %}
-    <script>
-        // Инициализируем Telegram WebApp
-        let tg = window.Telegram.WebApp;
+    <style>
+        @import url("https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap");
 
-        // Получаем query_id
-        let query_id = tg.initDataUnsafe.query_id;
-
-        // Проверяем, что query_id существует, прежде чем отправлять запрос
-        if (query_id) {
-            fetch('/process_payment/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': '{{ csrf_token }}'
-                },
-                body: JSON.stringify({
-                    "order_id": "{{ order_id }}",
-                    "iframe_url": "{{ iframe_url }}",
-                    "query_id": query_id  // Передаем query_id на сервер
-                })
-            })
-                .then(response => response.json())
-                .then(data => {
-                    // Закрываем WebApp только после успешного запроса
-                    if (data.status === 'success') {
-                        tg.close();
-                    } else {
-                        alert('Ошибка: ' + data.message);
-                    }
-                })
-                .catch(error => {
-                    console.error('Ошибка:', error);
-                });
-        } else {
-            console.error('Не удалось получить query_id.');
+        :root {
+          --bg: #0c0c10;
+          --surface: #13131a;
+          --border: #2a2a3a;
+          --accent: #4cc9f0;
+          --accent2: #7b5ea7;
+          --text: #dde1f0;
+          --text-dim: #7e849e;
+          --success: #70f0b0;
+          --danger: #f07070;
         }
-    </script>
-{% endif %}
+
+        * {
+          box-sizing: border-box;
+          margin: 0;
+          padding: 0;
+        }
+
+        body {
+          font-family: "DM Sans", sans-serif;
+          background: var(--bg);
+          color: var(--text);
+          min-height: 100vh;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 20px;
+        }
+
+        .card {
+          width: 100%;
+          max-width: 480px;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 18px;
+          padding: 48px 32px;
+          text-align: center;
+          position: relative;
+        }
+
+        .card::before {
+          content: "";
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          height: 2px;
+          background: linear-gradient(90deg, var(--accent2), var(--accent));
+        }
+
+        .spinner {
+          width: 46px;
+          height: 46px;
+          border: 3px solid var(--border);
+          border-top-color: var(--accent);
+          border-radius: 50%;
+          animation: spin 0.8s linear infinite;
+          margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+
+        .icon {
+          font-size: 3rem;
+          display: none;
+          margin-bottom: 14px;
+        }
+
+        h2 {
+          font-family: "Syne", sans-serif;
+          font-size: 1.3rem;
+          font-weight: 800;
+          margin-bottom: 10px;
+        }
+
+        p {
+          color: var(--text-dim);
+          font-size: 0.9rem;
+          line-height: 1.5;
+        }
+
+        .error {
+          color: var(--danger);
+          font-size: 0.8rem;
+          margin-top: 10px;
+          display: none;
+        }
+
+        .btn {
+          display: none;
+          margin-top: 22px;
+          padding: 12px 24px;
+          border: 1px solid var(--accent);
+          border-radius: 10px;
+          color: var(--accent);
+          text-decoration: none;
+          font-family: "Syne", sans-serif;
+          font-size: 0.85rem;
+          font-weight: 700;
+          letter-spacing: 0.06em;
+          transition: 0.2s;
+        }
+
+        .btn:hover {
+          background: var(--accent);
+          color: var(--bg);
+        }
+
+    </style>
+</head>
+
+<body>
+
+<div class="card">
+    <div class="spinner" id="spinner"></div>
+    <div class="icon" id="icon"></div>
+
+    <h2 id="title">Формируем ссылку…</h2>
+    <p id="sub">Секунду, почти готово</p>
+
+    <p class="error" id="error"></p>
+
+    <a
+            href="https://max.ru/id5402026216_bot"
+            class="btn"
+            id="btn"
+    >
+        Вернуться в бота
+    </a>
+</div>
+
+<script>
+    {% if close_webapp %}
+
+    (function () {
+
+      fetch('/process_payment/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({
+          order_id: '{{ order_id }}',
+          iframe_url: '{{ iframe_url }}',
+          query_id: '{{ user_id }}'
+        })
+      })
+      .then(r => r.json())
+      .then(data => {
+
+        const spinner = document.getElementById('spinner');
+        const icon = document.getElementById('icon');
+        const title = document.getElementById('title');
+        const sub = document.getElementById('sub');
+        const error = document.getElementById('error');
+        const btn = document.getElementById('btn');
+
+        spinner.style.display = 'none';
+        icon.style.display = 'block';
+
+        if (data.status === 'success') {
+
+          icon.textContent = '✅';
+          title.textContent = 'Готово';
+          sub.textContent = 'Ссылка на оплату отправлена в бота';
+
+          btn.style.display = 'inline-block';
+
+          setTimeout(() => {
+            window.close();
+          }, 1000);
+
+        } else {
+
+          icon.textContent = '❌';
+          title.textContent = 'Ошибка';
+          sub.textContent = 'Не удалось сформировать ссылку';
+
+          error.textContent = data.message || 'Неизвестная ошибка';
+          error.style.display = 'block';
+
+          btn.style.display = 'inline-block';
+        }
+
+      })
+      .catch(err => {
+
+        document.getElementById('spinner').style.display = 'none';
+        document.getElementById('icon').style.display = 'block';
+        document.getElementById('icon').textContent = '⚠️';
+
+        document.getElementById('title').textContent = 'Ошибка соединения';
+        document.getElementById('sub').textContent = 'Проверьте интернет';
+
+        document.getElementById('error').textContent = err.toString();
+        document.getElementById('error').style.display = 'block';
+
+        document.getElementById('btn').style.display = 'inline-block';
+      });
+
+    })();
+
+    {% endif %}
+</script>
+
 </body>
 </html>

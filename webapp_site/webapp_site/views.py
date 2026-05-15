@@ -1,17 +1,20 @@
+import asyncio
 import os
+import threading
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import psycopg2
 import urllib3
-import telebot
-from telebot import TeleBot
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect
 
 from dotenv import load_dotenv
 from loguru import logger
+from maxapi import Bot
+from maxapi.enums import ParseMode
+from maxapi.types import ButtonsPayload, LinkButton
 from urllib3.exceptions import InsecureRequestWarning
 from yookassa import Payment, Configuration
 
@@ -25,17 +28,17 @@ load_dotenv()
 IS_PROD = os.getenv("IS_PROD")
 
 if IS_PROD == "True":
-    BOT_TOKEN = os.getenv('BOT_TOKEN')  # http://t.me/Mirkinopro_Bot
+    MAX_BOT_TOKEN = os.getenv('MAX_BOT_TOKEN')  # http://t.me/Mirkinopro_Bot
     url = os.getenv('URL')
     bot_url = "https://t.me/Mirkinopro_Bot"
     url_server = os.getenv('URL')
 else:
     url = "https://l8lxne-37-78-194-77.ru.tuna.am"
     url_server = "https://verified-greatly-bonefish.ngrok-free.app"
-    BOT_TOKEN = os.getenv('BOT_TOKEN_TEST')  # https://t.me/test_2_func_bot
+    MAX_BOT_TOKEN = os.getenv('MAX_BOT_TOKEN_TEST')  # https://t.me/test_2_func_bot
     bot_url = "https://t.me/test_2_func_bot"
 
-bot = TeleBot(BOT_TOKEN)
+bot = Bot(token=MAX_BOT_TOKEN)
 
 url_kino_baza = os.getenv("URL_KINO_BAZA")
 youkassa_shop_id = os.getenv("YOUKASSA_SHOP_ID")
@@ -58,6 +61,45 @@ else:
 CustomLogger().add_logger(os.path.join(Path(__file__).parent.parent.parent, "logs", "info_server.log"), __name__)
 
 
+def send_message_sync(chat_id: int, user_id: int, text: str, attachments=None):
+    threading.Thread(
+        target=_run_async_send,
+        args=(chat_id, user_id, text, attachments),
+        daemon=True
+    ).start()
+
+
+def _run_async_send(chat_id, user_id, text, attachments):
+    asyncio.run(
+        send_message_async(chat_id, user_id, text, attachments)
+    )
+
+
+async def send_message_async(chat_id: int, user_id: int, text: str, attachments=None):
+    await bot.send_message(
+        chat_id=chat_id,
+        user_id=user_id,
+        text=text,
+        parse_mode=ParseMode.HTML,
+        attachments=attachments,
+    )
+
+
+def _inline_url(rows: list[list[tuple[str, str]]]):
+    return ButtonsPayload(
+        buttons=[
+            [
+                LinkButton(
+                    text=text,
+                    url=url,
+                )
+                for text, url in row
+            ]
+            for row in rows
+        ]
+    ).pack()
+
+
 def process_payment(request):
     if request.method == 'POST':
         data = json.loads(request.body)
@@ -76,13 +118,18 @@ def process_payment(request):
                     if order is None:
                         return JsonResponse({"status": "error", "message": "Order not found"}, status=404)
 
-                    curs.execute("""SELECT name, surname, patronymic, agreement FROM users WHERE user_id = %s;""", (order[2],))
+                    curs.execute(
+                        """SELECT name, surname, patronymic, agreement, max_chat_id FROM users WHERE user_id = %s;""",
+                        (order[2],))
                     user = curs.fetchone()
                     if user is None:
                         return JsonResponse({"status": "error", "message": "User not found"}, status=404)
 
+                    chat_id = user[4]
+
                     if user[0] is None or user[1] is None:
-                        msg = bot.send_message(
+                        send_message_sync(
+                            chat_id,
                             order[2],
                             "Извините, для начала Вам нужно заполнить ФИО, для этого введите /start",
                         )
@@ -150,13 +197,13 @@ def process_payment(request):
                         f"Для оплаты нажмите кнопку ниже ⬇️"
                     )
 
-                    msg = bot.send_message(
+                    attachments = [_inline_url([[("Оплатить по пушкинской карте", payment_link)]])]
+
+                    send_message_sync(
+                        chat_id,
                         user_id,
                         msg_text,
-                        reply_markup=telebot.types.InlineKeyboardMarkup(
-                            [[telebot.types.InlineKeyboardButton("Оплатить по Пушкинской карте", url=payment_link)]]
-                        ),
-                        parse_mode='HTML',
+                        attachments=attachments,
                     )
                     # msg = bot.send_message(
                     #     user_id,
@@ -165,13 +212,14 @@ def process_payment(request):
                     #         [[telebot.types.InlineKeyboardButton("Оплатить по Пушкинской карте", url=payment_link)]]),
                     #     parse_mode='HTML',
                     # )
-                    curs.execute(
-                        """UPDATE orders SET payment_msg_id = %s WHERE order_id = %s""",
-                        (msg.message_id, order_id,))
+                    # curs.execute(
+                    #     """UPDATE orders SET payment_msg_id = %s WHERE order_id = %s""",
+                    #     (msg., order_id,))
 
             return JsonResponse({"status": "success"})
 
         except Exception as e:
+            logger.exception("process_payment")
             return JsonResponse({"status": "error", "message": str(e)}, status=500)
 
 
@@ -185,11 +233,10 @@ def finishpayment(request, order_id):
         # Здесь идет проверка статуса платежа
         sys.path.append(root_path)
         from base_requests import check_payment_status
-        check_payment_status(payment_id)
+        # check_payment_status(payment_id)
 
         # Вместо рендеринга HTML, возвращаем JavaScript, который взаимодействует с Telegram WebApp
         return HttpResponse("""
-            <script src="https://telegram.org/js/telegram-web-app.js"></script>
             <script type="text/javascript">
                 let tg = window.Telegram.WebApp;
                 tg.MainButton.setParams({
@@ -207,7 +254,6 @@ def finishpayment(request, order_id):
     except Exception:
         logger.exception("-")
         return HttpResponse("""
-            <script src="https://telegram.org/js/telegram-web-app.js"></script>
             <script type="text/javascript">
                 let tg = window.Telegram.WebApp;
                 alert("Произошла ошибка при проверке платежа. Попробуйте позже.");
@@ -216,11 +262,11 @@ def finishpayment(request, order_id):
             """, content_type="text/html")
 
 
-def kino(request, performance_id, tg_id):
+def kino(request, performance_id, user_id):
     try:
         with psycopg2.connect(db_path) as data:
             with data.cursor() as curs:
-                curs.execute("""SELECT name, surname, patronymic FROM users WHERE user_id = %s;""", (tg_id,))
+                curs.execute("""SELECT name, surname, patronymic FROM users WHERE user_id = %s;""", (user_id,))
                 user = curs.fetchone()
                 fio = f"{user[1]} {user[0]} {user[2]}"
                 fio = fio.strip()
@@ -229,7 +275,6 @@ def kino(request, performance_id, tg_id):
             form = MyForm(request.POST)
             if form.is_valid():
                 # logger.info(request.POST)
-                user_id = request.POST['user_id']
 
                 state, price, place_place, place_row, place_id, order_id = request.POST['chair_but'].split(',')
 
@@ -248,15 +293,16 @@ def kino(request, performance_id, tg_id):
                     return ret
         else:  # при первом обращении
             # Если уже куплен есть бронь на сеанс, то сразу кнопка оплатить
-            if check_user_performance(tg_id, performance_id):
-                ret = cheir_choosed_from_main(request, tg_id, performance_id)
+            if check_user_performance(user_id, performance_id):
+                ret = cheir_choosed_from_main(request, user_id, performance_id)
                 return ret
 
             # ret = payment_button_pressed(request, user_id, performance_id, place_id, price, order_id)
             seatMap = create_list_of_buttons(performance_id)
             form = MyForm()
             return render(request, 'index.html',
-                          {'form': form, 'seatMap': seatMap, 'fio': fio, 'down_text': 'Выберите 1 место', 'is_new_data': True})
+                          {'form': form, 'seatMap': seatMap, 'fio': fio, 'down_text': 'Выберите 1 место',
+                           'is_new_data': True})
     except Exception:
         logger.exception("-")
 
@@ -276,23 +322,23 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price, or
                     (user_id, performance_id))
                 check_status = curs.fetchone()
                 if check_status[0] == 3:
-                    try:
-                        bot.delete_message(
-                            chat_id=user_id,
-                            message_id=check_status[2]
-                        )
-                    except Exception:
-                        pass
+                    # try:
+                    #     bot.delete_message(
+                    #         chat_id=user_id,
+                    #         message_id=check_status[2]
+                    #     )
+                    # except Exception:
+                    #     pass
                     return render(request, 'payment.html',
                                   {'iframe_url': check_status[1], 'close_webapp': True, 'order_id': order_id})
                 if check_status[0] == 0:
-                    try:
-                        bot.delete_message(
-                            chat_id=user_id,
-                            message_id=check_status[2]
-                        )
-                    except Exception:
-                        pass
+                    # try:
+                    #     bot.delete_message(
+                    #         chat_id=user_id,
+                    #         message_id=check_status[2]
+                    #     )
+                    # except Exception:
+                    #     pass
                     unblock_performance(user_id, performance_id)
                     return render(request, 'finish.html')
             except Exception as e:
@@ -305,10 +351,18 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price, or
             did_he_almoust_bye = curs.fetchone()
 
     if did_he_almoust_bye != None:  # если уже успешно купил билет на сеанс
-        import telebot
-        bot.send_message(user_id,
-                         f'На сеанс можно купить только 1 билет по Пушкинской карте\n'
-                         f'Ваш билет\nРяд {did_he_almoust_bye[0]} Место {did_he_almoust_bye[1]} Цена {did_he_almoust_bye[2]}\nНомер заказа {did_he_almoust_bye[3]}')
+        with psycopg2.connect(db_path) as conn:
+            with conn.cursor() as curs:
+                curs.execute(
+                    "SELECT name, surname, patronymic, max_chat_id FROM users WHERE user_id = %s;",
+                    (user_id,)
+                )
+                user = curs.fetchone()
+
+        chat_id = user[3]
+        send_message_sync(chat_id, user_id,
+                                f'На сеанс можно купить только 1 билет по Пушкинской карте\n'
+                                f'Ваш билет\nРяд {did_he_almoust_bye[0]} Место {did_he_almoust_bye[1]} Цена {did_he_almoust_bye[2]}\nНомер заказа {did_he_almoust_bye[3]}')
         return render(request, 'finish.html')
 
     Configuration.account_id = int(youkassa_shop_id)
@@ -338,17 +392,18 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price, or
                 """UPDATE orders SET status = 3, payment_id = %s, payment_link = %s WHERE order_id = %s AND user_id = %s AND performance_id = %s""",
                 (payment_id, payment_link, order_id, user_id, performance_id))
 
-    return render(request, 'payment.html', {'iframe_url': payment_link, 'close_webapp': True, 'order_id': order_id})
+    return render(request, 'payment.html',
+                  {'iframe_url': payment_link, 'close_webapp': True, 'order_id': order_id, 'user_id': user_id})
 
 
 def cheir_choosed(request, user_id, performance_id, place_id, price, place_locked_time, form):
     state, price, place_place, place_row, place_id, place_locked_time = request.POST['chair_but'].split(',')
-    user_id = request.POST['user_id']
     with psycopg2.connect(db_path) as data:
         with data.cursor() as curs:
             # вытаскиваем id зала, потому что у некоторых залов специфические настройки
             try:
-                curs.execute("""SELECT buyer_id, name, surname, patronymic FROM users WHERE user_id = %s;""", (user_id,))
+                curs.execute("""SELECT buyer_id, name, surname, patronymic FROM users WHERE user_id = %s;""",
+                             (user_id,))
                 user = curs.fetchone()
                 buyer_id = user[0]
             except TypeError:
@@ -373,6 +428,7 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
         "IdPriceCategory": 17198,
         "df": "J"
     }
+    logger.info(f"{params=}")
 
     try:
         response = requests.request("GET", 'http://195.208.148.248:18088/TicketAutomat/get.php', params=params,
@@ -383,7 +439,7 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
         return render(request, 'finish.html')
 
     locked_place = response.json()
-    # print(locked_place)
+    logger.info(f"{locked_place=}")
     # записываем в базу как заказ со статусом 1
     try:
         if locked_place['Price']:  # если место свободно
@@ -409,8 +465,17 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
 
             if isinstance(order_data, dict):
                 if order_data.get('Error') is not None:
-                    bot.send_message(user_id,
-                                     f'''Какая-то ошибка, попробуйте позже.\n{order_data.get('Error')}''')
+                    with psycopg2.connect(db_path) as conn:
+                        with conn.cursor() as curs:
+                            curs.execute(
+                                "SELECT name, surname, patronymic, max_chat_id FROM users WHERE user_id = %s;",
+                                (user_id,)
+                            )
+                            user = curs.fetchone()
+
+                    chat_id = user[3]
+                    send_message_sync(chat_id, user_id,
+                                            f'''Какая-то ошибка, попробуйте позже.\n{order_data.get('Error')}''')
                     unblock_performance(user_id, performance_id)
                     return render(request, 'finish.html')
 
@@ -470,7 +535,8 @@ def cheir_choosed(request, user_id, performance_id, place_id, price, place_locke
 
             seatMap = create_list_of_buttons(performance_id)
             return render(request, 'when_place_choosed.html',
-                          {'form': form, 'fio': fio, 'back_value': f'back,{price},{place_place},{place_row},{place_id},{order_id}',
+                          {'form': form, 'fio': fio,
+                           'back_value': f'back,{price},{place_place},{place_row},{place_id},{order_id}',
                            'button_value': f'pay,{price},{place_place},{place_row},{place_id},{order_id}',
                            'text': f'Ряд {place_row}\nМесто {place_place}\n\nЦена {price}'})
     except KeyError as ex:  # если место заблокировано уже
@@ -694,8 +760,8 @@ def unblock_all(user_id, performance_id, place_id, delete_connection=True):
                 logger.info(decode_unicode(response.text))
                 break
             except Exception as e:
-                bot.send_message(5254091301,
-                                 f'!!!!Ошибка. Заказ unblock_all, но отменить не вышло {e}')
+                # bot.send_message(5254091301,
+                #                  f'!!!!Ошибка. Заказ unblock_all, но отменить не вышло {e}')
                 logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
                 time.sleep(7)
 
@@ -706,8 +772,9 @@ def unblock_all(user_id, performance_id, place_id, delete_connection=True):
                         """UPDATE orders SET status = 0 WHERE performance_id = %s AND place_id = %s AND buyer_id = %s AND user_id = %s""",
                         (order[0], order[1], order[2], user_id))
                 except Exception as e:
-                    bot.send_message(5254091301,
-                                     f'!!!!Ошибка UPDATE orders SET status. Заказ unblock_all, но отменить не вышло {e}: {order=}')
+                    # bot.send_message(5254091301,
+                    #                  f'!!!!Ошибка UPDATE orders SET status. Заказ unblock_all, но отменить не вышло {e}: {order=}')
+                    logger.exception("unblock_all")
 
 
 def unblock_performance(user_id, performance_id):
@@ -719,21 +786,22 @@ def unblock_performance(user_id, performance_id):
             order = curs.fetchone()
 
     logger.info(order)
-    params = {
-        "sp": "WgA_SetOrderToNull",
-        "idOrder": order[3],
-        "df": "J",
-    }
-    for i in range(5):
-        try:
-            response = requests.request("GET", url_kino_baza, params=params, timeout=5)
-            logger.info(decode_unicode(response.text))
-            break
-        except Exception as e:
-            bot.send_message(5254091301,
-                             f'!!!!Ошибка. Заказ unblock_performance, но отменить не вышло {e}')
-            logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
-            time.sleep(7)
+    if order is not None:
+        params = {
+            "sp": "WgA_SetOrderToNull",
+            "idOrder": order[3],
+            "df": "J",
+        }
+        for i in range(5):
+            try:
+                response = requests.request("GET", url_kino_baza, params=params, timeout=5)
+                logger.info(decode_unicode(response.text))
+                break
+            except Exception as e:
+                # bot.send_message(5254091301,
+                #                  f'!!!!Ошибка. Заказ unblock_performance, но отменить не вышло {e}')
+                logger.exception("Произошла ошибка RRWgA_SetOrderToNull")
+                time.sleep(7)
 
     try:
         bot.delete_message(
@@ -750,8 +818,9 @@ def unblock_performance(user_id, performance_id):
                     """UPDATE orders SET status = 0, payment_link = NULL, payment_id = NULL, payment_msg_id = NULL WHERE performance_id = %s AND user_id = %s""",
                     (performance_id, user_id))
             except Exception as e:
-                bot.send_message(5254091301,
-                                 f'!!!!Ошибка UPDATE orders SET status. Заказ unblock_performance, но отменить не вышло {e}: {order=}')
+                # bot.send_message(5254091301,
+                #                  f'!!!!Ошибка UPDATE orders SET status. Заказ unblock_performance, но отменить не вышло {e}: {order=}')
+                logger.exception("unblock_performance")
 
 
 def check_user_performance(tg_id, performance_id):
@@ -773,7 +842,7 @@ def cheir_choosed_from_main(request, user_id, performance_id):
                 """SELECT place_id, place, row, order_id, price, status, payment_msg_id, payment_link FROM orders where user_id = %s AND performance_id = %s;""",
                 (user_id, performance_id))
             order = curs.fetchone()
-            curs.execute("""SELECT name, surname, patronymic FROM users WHERE user_id = %s;""", (user_id,))
+            curs.execute("""SELECT name, surname, patronymic, max_chat_id FROM users WHERE user_id = %s;""", (user_id,))
             user = curs.fetchone()
             fio = f"{user[1]} {user[0]} {user[2]}"
             fio = fio.strip()
@@ -784,6 +853,7 @@ def cheir_choosed_from_main(request, user_id, performance_id):
     place_row = order[2]
     order_id = order[3]
     status = order[5]
+    chat_id = user[3]
     payment_link = order[7]
 
     form = MyForm()
@@ -791,7 +861,8 @@ def cheir_choosed_from_main(request, user_id, performance_id):
     if status == 2:
         comment = "\nВы уже выбрали место на этот сеанс, оплатите его\nлибо нажмите назад, чтобы выбрать другое место"
         return render(request, 'when_place_choosed.html',
-                      {'form': form, 'fio': fio, 'back_value': f'back,{price},{place_place},{place_row},{place_id},{order_id}',
+                      {'form': form, 'fio': fio,
+                       'back_value': f'back,{price},{place_place},{place_row},{place_id},{order_id}',
                        'button_value': f'pay,{price},{place_place},{place_row},{place_id},{order_id}',
                        'text': f'Ряд {place_row}\nМесто {place_place}\n\nЦена {price}',
                        'comment': comment})
@@ -809,9 +880,9 @@ def cheir_choosed_from_main(request, user_id, performance_id):
         return render(request, 'finish.html')
 
     elif status == 1:
-        bot.send_message(user_id,
-                         f'На сеанс можно купить только 1 билет по Пушкинской карте\n'
-                         f'Ваш билет\nРяд {place_row} Место {place_place} Цена {price}\nНомер заказа {order_id}')
+        send_message_sync(chat_id, user_id,
+                                f'На сеанс можно купить только 1 билет по Пушкинской карте\n'
+                                f'Ваш билет\nРяд {place_row} Место {place_place} Цена {price}\nНомер заказа {order_id}')
         return render(request, 'finish.html')
 
     elif status == 0:

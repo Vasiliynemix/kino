@@ -1,3 +1,5 @@
+import asyncio
+
 import cherrypy
 from django.core.wsgi import get_wsgi_application
 from cherrypy.lib.static import serve_file
@@ -18,6 +20,8 @@ class Root:
 
 
 if __name__ == '__main__':
+    # start_async_loop()
+    # set_main_loop()
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     STATIC_DIR = os.path.join(BASE_DIR, 'static')
 

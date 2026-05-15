@@ -2,15 +2,19 @@ import uuid
 from datetime import datetime
 import sqlite3
 import psycopg2
-from config import db_path, old_sqlite_path
-
-# Подключение к SQLite
-sqlite_conn = sqlite3.connect(old_sqlite_path)
-sqlite_cursor = sqlite_conn.cursor()
+from config import db_path
 
 # Подключение к PostgreSQL
 with psycopg2.connect(db_path) as pg_conn:
     with pg_conn.cursor() as pg_cursor:
+        # pg_cursor.execute("""ALTER TABLE users ADD COLUMN max_chat_id BIGINT""")
+        # pg_cursor.execute("""
+        #         DELETE FROM orders
+        #         """)
+        # pg_cursor.execute("""
+        #                 DELETE FROM users
+        #                 """)
+
         # pg_cursor.execute("""ALTER TABLE users ADD COLUMN name TEXT""")
         # pg_cursor.execute("""ALTER TABLE users ADD COLUMN surname TEXT""")
         # pg_cursor.execute("""ALTER TABLE users ADD COLUMN patronymic TEXT""")
@@ -173,7 +177,3 @@ with psycopg2.connect(db_path) as pg_conn:
         pg_cursor.execute(
             """INSERT INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (3516, 'Горизонт', 'Новосибирск', 'г. Новосибирск, ул. Бориса Богаткова, 266', 1633) ON CONFLICT (building_id) DO NOTHING;""")
         # curs.execute("""INSERT OR IGNORE INTO cinemas (building_id, name, city, address, fond_kino_id) VALUES (4540, 'Седьмое Небо', 'Новосибирск', 'г. Новосибирск, ул. Дуси Ковальчук, 179/4');""")
-
-# Закрытие соединений
-sqlite_conn.close()
-print("SQLite соединение закрыто")
