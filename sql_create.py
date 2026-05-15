@@ -7,13 +7,13 @@ from config import db_path
 # Подключение к PostgreSQL
 with psycopg2.connect(db_path) as pg_conn:
     with pg_conn.cursor() as pg_cursor:
-        # pg_cursor.execute("""ALTER TABLE users ADD COLUMN max_chat_id BIGINT""")
-        # pg_cursor.execute("""
-        #         DELETE FROM orders
-        #         """)
-        # pg_cursor.execute("""
-        #                 DELETE FROM users
-        #                 """)
+        pg_cursor.execute("""ALTER TABLE users ADD COLUMN max_chat_id BIGINT""")
+        pg_cursor.execute("""
+                DELETE FROM orders
+                """)
+        pg_cursor.execute("""
+                        DELETE FROM users
+                        """)
 
         # pg_cursor.execute("""ALTER TABLE users ADD COLUMN name TEXT""")
         # pg_cursor.execute("""ALTER TABLE users ADD COLUMN surname TEXT""")
