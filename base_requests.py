@@ -83,7 +83,7 @@ def film_update_main(loop):
 
 
 def run_tasks(i, kinopoisk_enabled, loop):
-    # safe_execute(get_show_info, "get_show_info", loop=loop)
+    safe_execute(get_show_info, "get_show_info", loop=loop)
 
     if i % 2 == 0 or i == 1:
         safe_execute(all_show_request, "all_show_request", loop=loop)
