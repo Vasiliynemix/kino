@@ -30,13 +30,13 @@ IS_PROD = os.getenv("IS_PROD")
 if IS_PROD == "True":
     MAX_BOT_TOKEN = os.getenv('MAX_BOT_TOKEN')  # http://t.me/Mirkinopro_Bot
     url = os.getenv('URL')
-    bot_url = "https://t.me/Mirkinopro_Bot"
+    bot_url = "https://max.ru/id5402026216_bot"
     url_server = os.getenv('URL')
 else:
     url = "https://l8lxne-37-78-194-77.ru.tuna.am"
     url_server = "https://verified-greatly-bonefish.ngrok-free.app"
     MAX_BOT_TOKEN = os.getenv('MAX_BOT_TOKEN_TEST')  # https://t.me/test_2_func_bot
-    bot_url = "https://t.me/test_2_func_bot"
+    bot_url = "https://max.ru/id5402026216_bot"
 
 bot = Bot(token=MAX_BOT_TOKEN)
 
