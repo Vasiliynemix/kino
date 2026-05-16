@@ -14,6 +14,7 @@ from maxapi.context import State, StatesGroup, BaseContext
 from maxapi.context import MemoryContext
 from maxapi.types import Message, CallbackButton, MessageCallback, MessageCreated, ButtonsPayload
 from maxapi.types.attachments.buttons import InlineButtonUnion
+from maxapi.types import UpdateUnion
 
 import base_requests
 import send_messages
@@ -265,7 +266,8 @@ async def webhook_handler(request: web.Request) -> web.Response:
 
     try:
         data = await request.json()
-        await dp.feed(data)
+        await dp.handle(UpdateUnion(**data))
+        return web.Response()
     except Exception:
         logger.exception("Ошибка обработки webhook update")
 
