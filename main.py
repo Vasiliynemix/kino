@@ -294,9 +294,11 @@ async def start_internal_api():
 async def main() -> None:
     dp.storage = MemoryContext
 
+    logger.info("Start")
     # фоновые задачи
     asyncio.create_task(base_requests.film_update_main())
     asyncio.create_task(base_requests.process_orders())
+    logger.info("Start 2")
 
     # регаем webhook в MAX
     await register_webhook()
