@@ -12,6 +12,7 @@ from aiohttp import web
 from loguru import logger
 from maxapi.context import State, StatesGroup, BaseContext
 from maxapi.context import MemoryContext
+from maxapi.methods.types.getted_updates import process_update_request
 from maxapi.types import Message, CallbackButton, MessageCallback, MessageCreated, ButtonsPayload
 from maxapi.types.attachments.buttons import InlineButtonUnion
 from maxapi.types import UpdateUnion
@@ -265,13 +266,19 @@ async def webhook_handler(request: web.Request) -> web.Response:
         return web.Response(status=403)
 
     try:
-        data = await request.json()
-        await dp.handle(UpdateUnion(**data))
-        return web.Response()
+        raw = await request.json()
+
+        # 🔥 правильный парсинг через maxapi
+        events = await process_update_request(events=raw, bot=bot)
+
+        for event in events:
+            await dp.handle(event)
+
+        return web.Response(text="ok")
+
     except Exception:
         logger.exception("Ошибка обработки webhook update")
-
-    return web.Response(text="ok")
+        return web.Response(text="error", status=500)
 
 
 # ─── Entrypoint ───────────────────────────────────────────────────────────────
