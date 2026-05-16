@@ -227,25 +227,6 @@ async def callback_router(callback: MessageCallback, context: BaseContext):
         return
 
 
-# ─── Webhook aiohttp handler ──────────────────────────────────────────────────
-
-async def webhook_handler(request: web.Request) -> web.Response:
-    secret = (
-            request.headers.get('X-Webhook-Secret')
-            or request.rel_url.query.get('secret', '')
-    )
-    if secret != WEBHOOK_SECRET:
-        logger.warning('Webhook: неверный секрет')
-        return web.Response(status=403)
-
-    try:
-        data = await request.json()
-        await dp.feed(data)
-    except Exception:
-        logger.exception('Ошибка обработки webhook update')
-    return web.Response(text='ok')
-
-
 # ─── Регистрация webhook в MAX ────────────────────────────────────────────────
 
 async def register_webhook() -> None:
@@ -282,6 +263,22 @@ async def send_message_handler(request: web.Request) -> web.Response:
         return web.json_response({"status": "error"}, status=500)
 
 
+async def webhook_handler(request: web.Request) -> web.Response:
+    secret = request.headers.get("X-Max-Bot-Api-Secret")
+
+    if secret != WEBHOOK_SECRET:
+        logger.warning("Webhook: неверный секрет")
+        return web.Response(status=403)
+
+    try:
+        data = await request.json()
+        await dp.feed(data)
+    except Exception:
+        logger.exception("Ошибка обработки webhook update")
+
+    return web.Response(text="ok")
+
+
 async def start_internal_api():
     app = web.Application()
     app.router.add_post("/send_message", send_message_handler)
@@ -295,35 +292,36 @@ async def start_internal_api():
 
 
 async def main() -> None:
-    loop = asyncio.get_running_loop()
-    set_loop(loop)
     dp.storage = MemoryContext
 
-    # Фоновый поток обновления данных о фильмах
+    # фоновые задачи
     asyncio.create_task(base_requests.film_update_main())
     asyncio.create_task(base_requests.process_orders())
-    # threading.Thread(
-    #     target=base_requests.film_update_main,
-    #     args=(loop,),
-    #     daemon=True
-    # ).start()
-    # threading.Thread(
-    #     target=base_requests.process_orders,
-    #     args=(loop,),
-    #     daemon=True
-    # ).start()
 
-    await start_internal_api()
-
+    # регаем webhook в MAX
     await register_webhook()
 
-    await dp.handle_webhook(
-        bot,
-        host=WEBHOOK_HOST,
-        port=WEBHOOK_PORT,
-        path='/webhook',
-        secret=WEBHOOK_SECRET,
-    )
+    # 🔥 создаем ОДИН aiohttp app
+    app = web.Application()
+
+    # webhook
+    app.router.add_post("/webhook", webhook_handler)
+
+    # internal API
+    app.router.add_post("/send_message", send_message_handler)
+
+    # запуск
+    runner = web.AppRunner(app)
+    await runner.setup()
+
+    site = web.TCPSite(runner, WEBHOOK_HOST, WEBHOOK_PORT)
+    await site.start()
+
+    logger.info(f"Server started on {WEBHOOK_HOST}:{WEBHOOK_PORT}")
+
+    # чтобы не завершался
+    while True:
+        await asyncio.sleep(3600)
 
 
 if __name__ == '__main__':
