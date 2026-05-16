@@ -1,6 +1,7 @@
 import asyncio
 from aiohttp import web
 from loguru import logger
+from maxapi.enums import ParseMode
 from maxapi.types import Attachment
 
 from config import bot, WEBHOOK_HOST  # можно оставить общий конфиг
@@ -25,6 +26,7 @@ async def send_message_handler(request: web.Request) -> web.Response:
             user_id=user_id,
             text=text,
             attachments=attachments,
+            parse_mode=ParseMode.HTML,
         )
 
         return web.json_response({"status": "ok"})
