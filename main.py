@@ -268,19 +268,16 @@ async def main() -> None:
     set_loop(loop)
     dp.storage = MemoryContext
 
-    # Фоновый поток обновления данных о фильмах
-    # asyncio.create_task(film_update_loop())
-    # asyncio.create_task(process_orders_loop())
-    # threading.Thread(
-    #     target=base_requests.film_update_main,
-    #     args=(loop,),
-    #     daemon=True
-    # ).start()
-    # threading.Thread(
-    #     target=base_requests.process_orders,
-    #     args=(loop,),
-    #     daemon=True
-    # ).start()
+    threading.Thread(
+        target=base_requests.film_update_main,
+        args=(loop,),
+        daemon=True
+    ).start()
+    threading.Thread(
+        target=base_requests.process_orders,
+        args=(loop,),
+        daemon=True
+    ).start()
 
     await register_webhook()
 
