@@ -1,6 +1,7 @@
 import asyncio
 from aiohttp import web
 from loguru import logger
+from maxapi.types import Attachment
 
 from config import bot, WEBHOOK_HOST  # можно оставить общий конфиг
 
@@ -13,6 +14,11 @@ async def send_message_handler(request: web.Request) -> web.Response:
         user_id = data["user_id"]
         text = data.get("text", "")
         attachments = data.get("attachments")
+        if attachments:
+            attachments = [
+                Attachment.model_validate(a)
+                for a in attachments
+            ]
 
         await bot.send_message(
             chat_id=chat_id,

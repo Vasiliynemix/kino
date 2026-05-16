@@ -61,6 +61,10 @@ else:
 CustomLogger().add_logger(os.path.join(Path(__file__).parent.parent.parent, "logs", "info_server.log"), __name__)
 
 
+def serialize_attachments(attachments):
+    return [a.model_dump() for a in attachments]
+
+
 def send_message_sync(chat_id: int, user_id: int, text: str, attachments=None):
     requests.post(
         "http://localhost:8001/send_message",
@@ -68,7 +72,7 @@ def send_message_sync(chat_id: int, user_id: int, text: str, attachments=None):
             "chat_id": chat_id,
             "user_id": user_id,
             "text": text,
-            "attachments": attachments,
+            "attachments": serialize_attachments(attachments) if attachments is not None else None,
         },
         timeout=5
     )
