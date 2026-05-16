@@ -319,6 +319,8 @@ def kino(request, performance_id, user_id):
                            'is_new_data': True})
     except Exception:
         logger.exception("-")
+        unblock_performance(user_id, performance_id)
+        return render(request, 'finish.html')
 
 
 def payment_button_pressed(request, user_id, performance_id, place_id, price, order_id):
