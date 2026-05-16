@@ -278,23 +278,23 @@ async def webhook_handler(request: web.Request) -> web.Response:
 # set_main_loop()
 
 async def main() -> None:
-    loop = asyncio.get_running_loop()
-    set_loop(loop)
+    # loop = asyncio.get_running_loop()
+    # set_loop(loop)
     dp.storage = MemoryContext
 
     # Фоновый поток обновления данных о фильмах
     # asyncio.create_task(film_update_loop())
     # asyncio.create_task(process_orders_loop())
-    threading.Thread(
-        target=base_requests.film_update_main,
-        args=(loop,),
-        daemon=True
-    ).start()
-    threading.Thread(
-        target=base_requests.process_orders,
-        args=(loop,),
-        daemon=True
-    ).start()
+    # threading.Thread(
+    #     target=base_requests.film_update_main,
+    #     args=(loop,),
+    #     daemon=True
+    # ).start()
+    # threading.Thread(
+    #     target=base_requests.process_orders,
+    #     args=(loop,),
+    #     daemon=True
+    # ).start()
 
     # регаем webhook в MAX
     await register_webhook()
