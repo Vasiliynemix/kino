@@ -12,7 +12,7 @@ from aiohttp import web
 from loguru import logger
 from maxapi.context import State, StatesGroup, BaseContext
 from maxapi.context import MemoryContext
-from maxapi.methods.types.getted_updates import process_update_request
+from maxapi.methods.types.getted_updates import process_update_request, process_update_webhook
 from maxapi.types import Message, CallbackButton, MessageCallback, MessageCreated, ButtonsPayload
 from maxapi.types.attachments.buttons import InlineButtonUnion
 from maxapi.types import UpdateUnion
@@ -269,10 +269,9 @@ async def webhook_handler(request: web.Request) -> web.Response:
         raw = await request.json()
 
         # 🔥 правильный парсинг через maxapi
-        events = await process_update_request(events=raw, bot=bot)
+        event = await process_update_webhook(raw, bot=bot)
 
-        for event in events:
-            await dp.handle(event)
+        await dp.handle(event)
 
         return web.Response(text="ok")
 
