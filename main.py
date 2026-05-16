@@ -298,8 +298,8 @@ async def main() -> None:
     dp.storage = MemoryContext
 
     # фоновые задачи
-    asyncio.create_task(base_requests.film_update_main())
-    asyncio.create_task(base_requests.process_orders())
+    # asyncio.create_task(base_requests.film_update_main())
+    # asyncio.create_task(base_requests.process_orders())
 
     # регаем webhook в MAX
     await register_webhook()
