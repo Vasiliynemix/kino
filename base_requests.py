@@ -51,7 +51,7 @@ ADMIN_ID_2 = 1013689498  # Антон
 
 
 # ─── Главный цикл обновления ──────────────────────────────────────────────────
-async def film_update_main():
+def film_update_main(loop):
     i = 1
     kinopoisk_enabled = True
     last_check_date = datetime.date.today()
@@ -67,11 +67,11 @@ async def film_update_main():
                 last_check_date = today
                 logger.info("Новый день — kinopoisk_enabled=True")
 
-            kinopoisk_enabled = await run_tasks(i, kinopoisk_enabled)
+            kinopoisk_enabled = run_tasks(i, kinopoisk_enabled, loop)
 
         except Exception as e:
             logger.exception("Ошибка в film_update_main")
-            await notify_admin(f"Ошибка в film_update_main\n{e}")
+            asyncio.run_coroutine_threadsafe(notify_admin(f"Ошибка в film_update_main\n{e}"), loop)
 
         finally:
             i = 1 if i > 10000 else i + 1
@@ -82,24 +82,24 @@ async def film_update_main():
             time.sleep(sleep_time)
 
 
-async def run_tasks(i, kinopoisk_enabled):
-    await get_show_info()
+def run_tasks(i, kinopoisk_enabled, loop):
+    asyncio.run_coroutine_threadsafe(get_show_info(), loop)
 
     if i % 2 == 0 or i == 1:
-        await all_show_request()
+        asyncio.run_coroutine_threadsafe(all_show_request(), loop)
 
     if i % 4 == 0 or i == 1:
-        await all_performances_request()
+        asyncio.run_coroutine_threadsafe(all_performances_request(), loop)
 
     if i % 10 == 0 or i == 1:
-        await what_show_can_be_sell_pushkin_card()
+        asyncio.run_coroutine_threadsafe(what_show_can_be_sell_pushkin_card(), loop)
 
     if kinopoisk_enabled:
-        res = await get_kinopoisk_info()
+        res = asyncio.run_coroutine_threadsafe(get_kinopoisk_info(), loop)
         if res is False:
             kinopoisk_enabled = False
 
-    await unblock_5_min()
+    asyncio.run_coroutine_threadsafe(unblock_5_min(), loop)
 
     return kinopoisk_enabled
 
@@ -115,7 +115,7 @@ def safe_execute(func, name, **kwargs):
     #     logger.info(f"{name} stop")
 
 
-async def process_orders():
+def process_orders(loop):
     while True:
         try:
             with psycopg2.connect(db_path) as conn:
@@ -124,11 +124,11 @@ async def process_orders():
                     orders = curs.fetchall()
 
             for order in orders:
-                await check_payment_status(order[0])
+                asyncio.run_coroutine_threadsafe(check_payment_status(order[0]), loop)
 
         except Exception as e:
             logger.exception("Ошибка при получении заказов")
-            await notify_admin(f'Ошибка при получении заказов\n{e}')
+            asyncio.run_coroutine_threadsafe(notify_admin(f'Ошибка при получении заказов\n{e}', loop))
 
         time.sleep(10)
 

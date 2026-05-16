@@ -231,21 +231,12 @@ async def callback_router(callback: MessageCallback, context: BaseContext):
 
 async def register_webhook() -> None:
     try:
-        logger.info("register_webhook delete_webhook")
         await bot.delete_webhook()
-        logger.info("register_webhook delete_webhook end")
     except Exception:
-        logger.info("register_webhook delete_webhook error")
         pass
     webhook_full = f'{WEBHOOK_URL}'
     await bot.subscribe_webhook(url=webhook_full, secret=WEBHOOK_SECRET)
     logger.info(f'Webhook зарегистрирован: {webhook_full}')
-
-
-# ─── Entrypoint ───────────────────────────────────────────────────────────────
-
-# start_async_loop()
-# set_main_loop()
 
 
 async def send_message_handler(request: web.Request) -> web.Response:
@@ -270,7 +261,6 @@ async def webhook_handler(request: web.Request) -> web.Response:
     secret = request.headers.get("X-Max-Bot-Api-Secret")
 
     if secret != WEBHOOK_SECRET:
-        logger.warning("Webhook: неверный секрет")
         return web.Response(status=403)
 
     try:
@@ -282,24 +272,29 @@ async def webhook_handler(request: web.Request) -> web.Response:
     return web.Response(text="ok")
 
 
-async def start_internal_api():
-    app = web.Application()
-    app.router.add_post("/send_message", send_message_handler)
+# ─── Entrypoint ───────────────────────────────────────────────────────────────
 
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", 8001)
-    await site.start()
-
-    logger.info("Internal API started on :8001")
-
+# start_async_loop()
+# set_main_loop()
 
 async def main() -> None:
+    loop = asyncio.get_running_loop()
+    set_loop(loop)
     dp.storage = MemoryContext
 
-    # фоновые задачи
-    # asyncio.create_task(base_requests.film_update_main())
-    # asyncio.create_task(base_requests.process_orders())
+    # Фоновый поток обновления данных о фильмах
+    # asyncio.create_task(film_update_loop())
+    # asyncio.create_task(process_orders_loop())
+    threading.Thread(
+        target=base_requests.film_update_main,
+        args=(loop,),
+        daemon=True
+    ).start()
+    threading.Thread(
+        target=base_requests.process_orders,
+        args=(loop,),
+        daemon=True
+    ).start()
 
     # регаем webhook в MAX
     await register_webhook()
