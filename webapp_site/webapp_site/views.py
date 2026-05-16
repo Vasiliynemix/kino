@@ -63,7 +63,7 @@ CustomLogger().add_logger(os.path.join(Path(__file__).parent.parent.parent, "log
 
 def send_message_sync(chat_id: int, user_id: int, text: str, attachments=None):
     requests.post(
-        "http://localhost:8080/send_message",
+        "http://localhost:8001/send_message",
         json={
             "chat_id": chat_id,
             "user_id": user_id,
