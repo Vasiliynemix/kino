@@ -231,8 +231,11 @@ async def callback_router(callback: MessageCallback, context: BaseContext):
 
 async def register_webhook() -> None:
     try:
+        logger.info("register_webhook delete_webhook")
         await bot.delete_webhook()
+        logger.info("register_webhook delete_webhook end")
     except Exception:
+        logger.info("register_webhook delete_webhook error")
         pass
     webhook_full = f'{WEBHOOK_URL}'
     await bot.subscribe_webhook(url=webhook_full, secret=WEBHOOK_SECRET)
@@ -294,11 +297,9 @@ async def start_internal_api():
 async def main() -> None:
     dp.storage = MemoryContext
 
-    logger.info("Start")
     # фоновые задачи
     asyncio.create_task(base_requests.film_update_main())
     asyncio.create_task(base_requests.process_orders())
-    logger.info("Start 2")
 
     # регаем webhook в MAX
     await register_webhook()
