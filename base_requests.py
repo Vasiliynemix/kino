@@ -51,7 +51,7 @@ ADMIN_ID_2 = 1013689498  # Антон
 
 
 # ─── Главный цикл обновления ──────────────────────────────────────────────────
-def film_update_main(loop):
+async def film_update_main():
     i = 1
     kinopoisk_enabled = True
     last_check_date = datetime.date.today()
@@ -67,11 +67,11 @@ def film_update_main(loop):
                 last_check_date = today
                 logger.info("Новый день — kinopoisk_enabled=True")
 
-            kinopoisk_enabled = run_tasks(i, kinopoisk_enabled, loop)
+            kinopoisk_enabled = await run_tasks(i, kinopoisk_enabled)
 
         except Exception as e:
             logger.exception("Ошибка в film_update_main")
-            asyncio.run_coroutine_threadsafe(notify_admin(f"Ошибка в film_update_main\n{e}"), loop)
+            await notify_admin(f"Ошибка в film_update_main\n{e}")
 
         finally:
             i = 1 if i > 10000 else i + 1
@@ -82,24 +82,24 @@ def film_update_main(loop):
             time.sleep(sleep_time)
 
 
-def run_tasks(i, kinopoisk_enabled, loop):
-    safe_execute(get_show_info, "get_show_info", loop=loop)
+async def run_tasks(i, kinopoisk_enabled):
+    await get_show_info()
 
     if i % 2 == 0 or i == 1:
-        safe_execute(all_show_request, "all_show_request", loop=loop)
+        await all_show_request()
 
     if i % 4 == 0 or i == 1:
-        safe_execute(all_performances_request, "all_performances_request", loop=loop)
+        await all_performances_request()
 
     if i % 10 == 0 or i == 1:
-        safe_execute(what_show_can_be_sell_pushkin_card, "what_show_can_be_sell_pushkin_card", loop=loop)
+        await what_show_can_be_sell_pushkin_card()
 
     if kinopoisk_enabled:
-        res = safe_execute(get_kinopoisk_info, "get_kinopoisk_info", loop=loop)
+        res = await get_kinopoisk_info()
         if res is False:
             kinopoisk_enabled = False
 
-    safe_execute(unblock_5_min, "unblock_5_min", loop=loop)
+    await unblock_5_min()
 
     return kinopoisk_enabled
 
@@ -115,7 +115,7 @@ def safe_execute(func, name, **kwargs):
     #     logger.info(f"{name} stop")
 
 
-def process_orders(loop):
+async def process_orders():
     while True:
         try:
             with psycopg2.connect(db_path) as conn:
@@ -124,17 +124,17 @@ def process_orders(loop):
                     orders = curs.fetchall()
 
             for order in orders:
-                asyncio.run_coroutine_threadsafe(check_payment_status(order[0]), loop)
+                await check_payment_status(order[0])
 
         except Exception as e:
             logger.exception("Ошибка при получении заказов")
-            asyncio.run_coroutine_threadsafe(notify_admin(f'Ошибка при получении заказов\n{e}'), loop)
+            await notify_admin(f'Ошибка при получении заказов\n{e}')
 
         time.sleep(10)
 
 
 # ─── Обновление данных о фильмах ──────────────────────────────────────────────
-def all_show_request(loop):
+async def all_show_request():
     params = {"sp": "Wga_GetShow", "df": "J"}
     response = requests.get(url_kino_baza, params=params)
 
@@ -163,14 +163,14 @@ def all_show_request(loop):
                         except Exception as e:
                             logger.exception(f"Ошибка при вставке шоу {show.get('IdShow')}: {e}")
         except json.JSONDecodeError as e:
-            asyncio.run_coroutine_threadsafe(notify_admin(f'Ошибка декодирования JSON в all_show_request: {e}'), loop)
+            await notify_admin(f'Ошибка декодирования JSON в all_show_request: {e}')
         except Exception as e:
-            asyncio.run_coroutine_threadsafe(notify_admin(f'Ошибка базы по запросу всех show\n{e}'), loop)
+            await notify_admin(f'Ошибка базы по запросу всех show\n{e}')
     else:
-        asyncio.run_coroutine_threadsafe(notify_admin(f'Ошибка all_show_request: код {response.status_code}'), loop)
+        await notify_admin(f'Ошибка all_show_request: код {response.status_code}')
 
 
-def get_show_info(loop):
+async def get_show_info():
     try:
         with psycopg2.connect(db_path) as conn:
             with conn.cursor() as curs:
@@ -191,7 +191,7 @@ def get_show_info(loop):
                         conn.commit()
     except Exception as e:
         logger.exception("Ошибка get_show_info")
-        asyncio.run_coroutine_threadsafe(notify_admin(f'Ошибка Wga_GetShowInfo\n{e}'), loop)
+        await notify_admin(f'Ошибка Wga_GetShowInfo\n{e}')
 
 
 def normalize_name(name: str) -> str:
@@ -200,7 +200,7 @@ def normalize_name(name: str) -> str:
     return name
 
 
-def what_show_can_be_sell_pushkin_card(loop):
+async def what_show_can_be_sell_pushkin_card():
     try:
         params = {
             "organizations": "31698",
@@ -249,16 +249,14 @@ def what_show_can_be_sell_pushkin_card(loop):
                                 "UPDATE show SET pushkin_card = 0 WHERE name = %s", (show[0],)
                             )
         else:
-            asyncio.run_coroutine_threadsafe(
-                notify_admin(f'Ошибка what_show_can_be_sell_pushkin_card: код {response.status_code} '
-                             f'текст {response.text}'), loop)
+            await notify_admin(f'Ошибка what_show_can_be_sell_pushkin_card: код {response.status_code} '
+                             f'текст {response.text}')
     except Exception as e:
         logger.exception("Ошибка what_show_can_be_sell_pushkin_card")
-        asyncio.run_coroutine_threadsafe(
-            notify_admin(f'Ошибка what_show_can_be_sell_pushkin_card\n{e}'), loop)
+        await notify_admin(f'Ошибка what_show_can_be_sell_pushkin_card\n{e}')
 
 
-def get_kinopoisk_info(loop):
+async def get_kinopoisk_info():
     try:
         with psycopg2.connect(db_path) as conn:
             with conn.cursor() as curs:
@@ -280,8 +278,7 @@ def get_kinopoisk_info(loop):
                             err = {}
                         if "суточный лимит" in err.get("message", ""):
                             logger.error("Суточный лимит Кинопоиск исчерпан")
-                            asyncio.run_coroutine_threadsafe(
-                                notify_admin("Суточный лимит Кинопоиск исчерпан. Обновление остановлено."), loop)
+                            await notify_admin("Суточный лимит Кинопоиск исчерпан. Обновление остановлено.")
                             return False
                         continue
                     if response.status_code == 200:
@@ -296,12 +293,11 @@ def get_kinopoisk_info(loop):
         return True
     except Exception as e:
         logger.exception("Ошибка get_kinopoisk_info")
-        asyncio.run_coroutine_threadsafe(
-            notify_admin(f'Ошибка get_kinopoisk_info\n{e}'), loop)
+        await notify_admin(f'Ошибка get_kinopoisk_info\n{e}')
         return True
 
 
-def all_performances_request(loop):
+async def all_performances_request():
     params = {"sp": "Wga_GetPerformance", "df": "J"}
     response = requests.get(url_kino_baza, params=params)
 
@@ -337,11 +333,9 @@ def all_performances_request(loop):
                             logger.exception(f"Ошибка при вставке performance: {e}")
         except Exception as e:
             logger.exception("Ошибка all_performances_request")
-            asyncio.run_coroutine_threadsafe(
-                notify_admin(f'Ошибка all_performances_request\n{e}'), loop)
+            await notify_admin(f'Ошибка all_performances_request\n{e}')
     else:
-        asyncio.run_coroutine_threadsafe(
-            notify_admin(f'Ошибка all_performances_request: код {response.status_code}'), loop)
+        await notify_admin(f'Ошибка all_performances_request: код {response.status_code}')
 
 
 # ─── Регистрация / ФИО пользователя ──────────────────────────────────────────
@@ -919,40 +913,45 @@ def unblock_all(user_id: int, performance_id: int, place_id, loop):
                 )
 
 
-def unblock_5_min(loop):
-    with psycopg2.connect(db_path) as conn:
-        with conn.cursor() as curs:
-            curs.execute(
-                "SELECT performance_id, place_id, buyer_id, payment_id, order_id, user_id "
-                "FROM orders WHERE status = 2 AND place_locked_time < %s;",
-                (time.time() - 300,)
-            )
-            to_unblock = curs.fetchall()
-
-    for order in to_unblock:
-        if order[4] is None:
-            with psycopg2.connect(db_path) as conn:
-                with conn.cursor() as curs:
-                    curs.execute(
-                        "UPDATE orders SET status = 0 WHERE user_id = %s AND performance_id = %s",
-                        (order[5], order[0])
-                    )
-            continue
-
-        logger.info(order)
-        params = {"sp": "WgA_SetOrderToNull", "idOrder": order[4], "df": "J"}
-        for _ in range(5):
-            try:
-                response = requests.get(url_kino_baza, params=params)
-                logger.info(decode_unicode(response.text))
-                break
-            except Exception as e:
-                asyncio.run_coroutine_threadsafe(notify_admin(f'!!!!Ошибка unblock_5_min: {e}'), loop)
-                time.sleep(7)
-
+async def unblock_5_min():
+    try:
         with psycopg2.connect(db_path) as conn:
             with conn.cursor() as curs:
-                curs.execute("UPDATE orders SET status = 0 WHERE order_id = %s", (order[4],))
+                curs.execute(
+                    "SELECT performance_id, place_id, buyer_id, payment_id, order_id, user_id "
+                    "FROM orders WHERE status = 2 AND place_locked_time < %s;",
+                    (time.time() - 300,)
+                )
+                to_unblock = curs.fetchall()
+
+        for order in to_unblock:
+            if order[4] is None:
+                with psycopg2.connect(db_path) as conn:
+                    with conn.cursor() as curs:
+                        curs.execute(
+                            "UPDATE orders SET status = 0 WHERE user_id = %s AND performance_id = %s",
+                            (order[5], order[0])
+                        )
+                continue
+
+            logger.info(order)
+            params = {"sp": "WgA_SetOrderToNull", "idOrder": order[4], "df": "J"}
+            for _ in range(5):
+                try:
+                    response = requests.get(url_kino_baza, params=params)
+                    logger.info(decode_unicode(response.text))
+                    break
+                except Exception as e:
+                    await notify_admin(f'!!!!Ошибка unblock_5_min: {e}')
+                    time.sleep(7)
+
+            with psycopg2.connect(db_path) as conn:
+                with conn.cursor() as curs:
+                    curs.execute("UPDATE orders SET status = 0 WHERE order_id = %s", (order[4],))
+    except Exception as e:
+        logger.exception("Ошибка unblock_5_min")
+        await notify_admin(f'Ошибка unblock_5_min\n{e}')
+        return True
 
 
 def decode_unicode(data):

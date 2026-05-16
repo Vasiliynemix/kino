@@ -263,22 +263,57 @@ async def register_webhook() -> None:
 # start_async_loop()
 # set_main_loop()
 
+
+async def send_message_handler(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+
+        await bot.send_message(
+            chat_id=data["chat_id"],
+            user_id=data["user_id"],
+            text=data["text"],
+            attachments=data.get("attachments"),
+        )
+
+        return web.json_response({"status": "ok"})
+
+    except Exception:
+        logger.exception("send_message_handler")
+        return web.json_response({"status": "error"}, status=500)
+
+
+async def start_internal_api():
+    app = web.Application()
+    app.router.add_post("/send_message", send_message_handler)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", 8001)
+    await site.start()
+
+    logger.info("Internal API started on :8001")
+
+
 async def main() -> None:
     loop = asyncio.get_running_loop()
     set_loop(loop)
     dp.storage = MemoryContext
 
     # Фоновый поток обновления данных о фильмах
-    threading.Thread(
-        target=base_requests.film_update_main,
-        args=(loop,),
-        daemon=True
-    ).start()
-    threading.Thread(
-        target=base_requests.process_orders,
-        args=(loop,),
-        daemon=True
-    ).start()
+    asyncio.create_task(base_requests.film_update_main())
+    asyncio.create_task(base_requests.process_orders())
+    # threading.Thread(
+    #     target=base_requests.film_update_main,
+    #     args=(loop,),
+    #     daemon=True
+    # ).start()
+    # threading.Thread(
+    #     target=base_requests.process_orders,
+    #     args=(loop,),
+    #     daemon=True
+    # ).start()
+
+    await start_internal_api()
 
     await register_webhook()
 

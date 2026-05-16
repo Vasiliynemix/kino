@@ -62,11 +62,21 @@ CustomLogger().add_logger(os.path.join(Path(__file__).parent.parent.parent, "log
 
 
 def send_message_sync(chat_id: int, user_id: int, text: str, attachments=None):
-    threading.Thread(
-        target=_run_async_send,
-        args=(chat_id, user_id, text, attachments),
-        daemon=True
-    ).start()
+    requests.post(
+        "http://localhost:8001/send_message",
+        json={
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "text": text,
+            "attachments": attachments,
+        },
+        timeout=5
+    )
+    # threading.Thread(
+    #     target=_run_async_send,
+    #     args=(chat_id, user_id, text, attachments),
+    #     daemon=True
+    # ).start()
 
 
 def _run_async_send(chat_id, user_id, text, attachments):
