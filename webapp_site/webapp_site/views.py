@@ -320,7 +320,11 @@ def kino(request, performance_id, user_id):
     except Exception:
         logger.exception("-")
         unblock_performance(user_id, performance_id)
-        return render(request, 'finish.html')
+        seatMap = create_list_of_buttons(performance_id)
+        form = MyForm()
+        return render(request, 'index.html',
+                      {'form': form, 'seatMap': seatMap, 'fio': fio, 'down_text': 'Выберите 1 место',
+                       'is_new_data': True})
 
 
 def payment_button_pressed(request, user_id, performance_id, place_id, price, order_id):
