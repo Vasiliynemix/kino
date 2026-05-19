@@ -304,6 +304,7 @@ async def get_kinopoisk_info():
 async def all_performances_request():
     params = {"sp": "Wga_GetPerformance", "df": "J"}
     response = requests.get(url_kino_baza, params=params)
+    logger.info(f"{params=}, {response.status_code=}")
 
     if response.status_code == 200:
         try:
