@@ -13,7 +13,7 @@ from aiohttp import web
 from loguru import logger
 from maxapi.context import State, StatesGroup, BaseContext
 from maxapi.context import MemoryContext
-from maxapi.types import Message, CallbackButton, MessageCallback, MessageCreated, ButtonsPayload
+from maxapi.types import Message, CallbackButton, MessageCallback, MessageCreated, ButtonsPayload, BotStarted
 from maxapi.types.attachments.buttons import InlineButtonUnion
 
 import base_requests
@@ -56,6 +56,39 @@ def validate_name(name: str) -> bool:
 # ─── Любое сообщение без активного состояния — стартовая точка ───────────────
 
 @dp.bot_started()
+async def any_message_handler(message: BotStarted, context: BaseContext):
+    """
+    Обрабатываем все входящие сообщения.
+    Если пользователь в FSM-состоянии — маршрутизируем по нему.
+    Иначе — это «старт» диалога.
+    """
+    chat_id, user_id = message.get_ids()
+    state: MemoryContext = context
+
+    # ── Нет активного состояния — стартовый поток ────────────────────────────
+    try:
+        await state.clear()
+        user = base_requests.user_reg(user_id, chat_id)
+        print(user)
+
+        if user.get('name') is None:
+            await bot.send_message(
+                chat_id,
+                user_id,
+                '🎟 Для дальнейшего оформления билетов через этого бота необходимо указать ваши данные.\n\n'
+                'Пожалуйста, вводите ФИО строго так, как указано в паспорте.\n\n'
+                'Эти данные будут использоваться для формирования билетов на фильмы. '
+                'Ответственность за корректность введённых данных лежит на вас.'
+            )
+            await state.set_state(UserState.waiting_for_first_name)
+            await bot.send_message(chat_id, user_id, 'Введите ваше Имя:')
+            return
+
+        await send_messages.send_cinemas(chat_id, user_id)
+    except Exception:
+        logger.exception('Ошибка в any_message_handler')
+
+
 @dp.message_created()
 async def any_message_handler(message: MessageCreated, context: BaseContext):
     """
