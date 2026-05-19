@@ -141,7 +141,6 @@ def process_orders():
 async def all_show_request():
     params = {"sp": "Wga_GetShow", "df": "J"}
     response = requests.get(url_kino_baza, params=params)
-    logger.info(f"{params=}, {response.status_code=}")
 
     if response.status_code == 200:
         try:
@@ -184,7 +183,6 @@ async def get_show_info():
                 for show in shows:
                     params = {"sp": "Wga_GetShowInfo", "idShow": show[0], "df": "J"}
                     response = requests.get(url_kino_baza, params=params)
-                    logger.info(f"{params=}, {response.status_code=}")
                     if response.status_code == 200:
                         data = response.json()
                         kinopoisk_id = data['Remark']
@@ -306,7 +304,6 @@ async def get_kinopoisk_info():
 async def all_performances_request():
     params = {"sp": "Wga_GetPerformance", "df": "J"}
     response = requests.get(url_kino_baza, params=params)
-    logger.info(f"{params=}, {response.status_code=}")
 
     if response.status_code == 200:
         try:
