@@ -479,7 +479,6 @@ async def send_xml_to_ekinobilet(performance_data, show_data, payment, fond_kino
                                  place, row, price, payment_id, order_id):
     try:
         import xml.etree.ElementTree as ET
-        await notify_admin(f'Проверка отправки')
 
         building_name = performance_data[6]
         id_procult = show_data[2]
@@ -548,6 +547,7 @@ async def send_xml_to_ekinobilet(performance_data, show_data, payment, fond_kino
                     time.sleep(7)
 
         text_resp = response.content.decode('utf-8')
+        logger.info(f"send_xml_to_ekinobilet {text_resp=}")
         if 'error' not in text_resp:
             with psycopg2.connect(db_path) as conn:
                 with conn.cursor() as curs:
@@ -555,6 +555,7 @@ async def send_xml_to_ekinobilet(performance_data, show_data, payment, fond_kino
                         "UPDATE orders SET report_sented = 1 WHERE payment_id = %s", (payment_id,)
                     )
         else:
+            logger.error(f"Ошибка send_xml_to_ekinobilet: {text_resp}")
             await notify_admin(
                 f'!!!!Ошибка отправки в министерство\n'
                 f'order_id {order_id} ошибка {text_resp} файл {xml_file}'
