@@ -1,4 +1,5 @@
 import asyncio
+import mimetypes
 import os
 import threading
 from pathlib import Path
@@ -107,33 +108,35 @@ async def notify_admin(text: str, admin_2: bool = False) -> None:
 
 
 async def send_document_sync(
-    chat_id: int,
-    user_id: int,
-    file_path: str,
-    caption: str = "",
-    filename: str | None = None,
+        chat_id: int,
+        user_id: int,
+        file_path: str,
+        caption: str = "",
+        filename: str | None = None,
 ) -> None:
     if filename is None:
         filename = os.path.basename(file_path)
 
     try:
-        # 1. читаем файл в память
         with open(file_path, "rb") as f:
             buffer = f.read()
 
-        # 2. создаём media объект (без mime — SDK сам определит)
+        mime_type, _ = mimetypes.guess_type(filename)
+
+        logger.info(
+            f"[send_document] upload {filename}, "
+            f"size={len(buffer)}, "
+            f"mime={mime_type}"
+        )
+
         media = InputMediaBuffer(
             buffer=buffer,
             filename=filename,
+            type=UploadType.FILE,
         )
 
-        # 3. SDK сам:
-        # - определит тип
-        # - загрузит файл
-        # - получит token
         attachment = await bot.upload_media(media)
 
-        # 4. отправка сообщения
         await bot.send_message(
             chat_id=chat_id,
             user_id=user_id,
@@ -141,5 +144,5 @@ async def send_document_sync(
             attachments=[attachment],
         )
 
-    except Exception as e:
-        logger.error(f"[send_document] ошибка: {e}")
+    except Exception:
+        logger.exception("[send_document] ошибка")

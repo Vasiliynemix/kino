@@ -254,7 +254,7 @@ async def what_show_can_be_sell_pushkin_card():
                             )
         else:
             await notify_admin(f'Ошибка what_show_can_be_sell_pushkin_card: код {response.status_code} '
-                             f'текст {response.text}')
+                               f'текст {response.text}')
     except Exception as e:
         logger.exception("Ошибка what_show_can_be_sell_pushkin_card")
         await notify_admin(f'Ошибка what_show_can_be_sell_pushkin_card\n{e}')
@@ -863,22 +863,22 @@ async def check_payment_status(payment_id: str, report: bool = True):
             date_time_obj = datetime.datetime.strptime(f'{perf[0]} {perf[1]}', '%Y-%m-%d %H:%M')
             event_session_timestamp = int(time.mktime(date_time_obj.timetuple()))
 
-            ok, text = validate_pochta_bank(
-                buyer_info=fio, rrn=rrn, event_id=event_id,
-                place_id=place_id, event_session_timestamp=event_session_timestamp,
-            )
-            if not ok:
-                if text == "400":
-                    return is_succeeded
-                await send_xml_to_ekinobilet(
-                    performance_data, show_data, payment, fond_kino_id,
-                    place, row, -price, payment_id, order_id,
-                )
-                await send_message_sync(
-                    chat_id,
-                    user_id,
-                    f"Извините, возникла ошибка, деньги вернутся на вашу карту.\n{text}",
-                )
+            # ok, text = validate_pochta_bank(
+            #     buyer_info=fio, rrn=rrn, event_id=event_id,
+            #     place_id=place_id, event_session_timestamp=event_session_timestamp,
+            # )
+            # if not ok:
+            #     if text == "400":
+            #         return is_succeeded
+            #     await send_xml_to_ekinobilet(
+            #         performance_data, show_data, payment, fond_kino_id,
+            #         place, row, -price, payment_id, order_id,
+            #     )
+            #     await send_message_sync(
+            #         chat_id,
+            #         user_id,
+            #         f"Извините, возникла ошибка, деньги вернутся на вашу карту.\n{text}",
+            #     )
         except Exception:
             logger.exception("Ошибка валидации Почта Банк")
 
