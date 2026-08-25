@@ -101,8 +101,15 @@ ADMIN_ID_2 = 1013689498  # Антон
 
 
 async def notify_admin(text: str, admin_2: bool = False) -> None:
-    """Уведомить администратора (синхронно из любого потока)."""
-    await send_message_sync(chat_id=ADMIN_ID_CHAT, user_id=ADMIN_ID, text=text)
+    """Уведомить администратора (синхронно из любого потока).
+
+    Никогда не бросает наружу: notify_admin вызывается из блоков except
+    в вечных циклах, и его падение убивало весь процесс.
+    """
+    try:
+        await send_message_sync(chat_id=ADMIN_ID_CHAT, user_id=ADMIN_ID, text=text)
+    except Exception:
+        logger.exception("[notify_admin] не удалось отправить уведомление админу")
     if admin_2:
         pass
 

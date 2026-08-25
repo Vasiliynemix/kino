@@ -45,6 +45,9 @@ from pkg.log import CustomLogger
 
 CustomLogger().add_logger(info_log_file, __name__)
 
+# (connect, read) — без этого любой зависший сокет вешает лупу навсегда
+HTTP_TIMEOUT = (10, 60)
+
 ADMIN_ID = 8099031
 ADMIN_ID_CHAT = 284784629
 ADMIN_ID_2 = 1013689498  # Антон
@@ -62,6 +65,7 @@ def film_update_main():
         start = time.time()
 
         try:
+            logger.info(f"film_update_main tick {i}")
             # reset daily flag
             today = datetime.date.today()
             if today != last_check_date:
@@ -128,7 +132,12 @@ def process_orders():
                     orders = curs.fetchall()
 
             for order in orders:
-                loop.run_until_complete(check_payment_status(order[0]))
+                # без изоляции один "ядовитый" заказ рвал цикл и вечно
+                # блокировал обработку всех остальных платежей
+                try:
+                    loop.run_until_complete(check_payment_status(order[0]))
+                except Exception:
+                    logger.exception(f"Ошибка обработки платежа {order[0]}")
 
         except Exception as e:
             logger.exception("Ошибка при получении заказов")
@@ -140,7 +149,7 @@ def process_orders():
 # ─── Обновление данных о фильмах ──────────────────────────────────────────────
 async def all_show_request():
     params = {"sp": "Wga_GetShow", "df": "J"}
-    response = requests.get(url_kino_baza, params=params)
+    response = requests.get(url_kino_baza, params=params, timeout=HTTP_TIMEOUT)
 
     if response.status_code == 200:
         try:
@@ -148,6 +157,9 @@ async def all_show_request():
                 with conn.cursor() as curs:
                     for show in response.json():
                         try:
+                            # savepoint: иначе одна битая запись переводит транзакцию
+                            # в aborted и остальные фильмы молча не сохраняются
+                            curs.execute("SAVEPOINT show_sp")
                             show['ShowName'] = (
                                 show['ShowName']
                                 .replace('&quot;', '')
@@ -164,7 +176,12 @@ async def all_show_request():
                                 "UPDATE show SET name = %s, duration = %s WHERE show_id = %s",
                                 (show['ShowName'], show['Duration'], show['IdShow']),
                             )
+                            curs.execute("RELEASE SAVEPOINT show_sp")
                         except Exception as e:
+                            try:
+                                curs.execute("ROLLBACK TO SAVEPOINT show_sp")
+                            except Exception:
+                                pass
                             logger.exception(f"Ошибка при вставке шоу {show.get('IdShow')}: {e}")
         except json.JSONDecodeError as e:
             await notify_admin(f'Ошибка декодирования JSON в all_show_request: {e}')
@@ -178,11 +195,13 @@ async def get_show_info():
     try:
         with psycopg2.connect(db_path) as conn:
             with conn.cursor() as curs:
-                curs.execute("SELECT show_id, name FROM show WHERE kinopoisk_id IS NULL;")
+                # батч: у шоу с пустым Remark kinopoisk_id так и остаётся NULL,
+                # без LIMIT они перезапрашивались каждые 5 секунд и топили лупу
+                curs.execute("SELECT show_id, name FROM show WHERE kinopoisk_id IS NULL LIMIT 20;")
                 shows = curs.fetchall()
                 for show in shows:
                     params = {"sp": "Wga_GetShowInfo", "idShow": show[0], "df": "J"}
-                    response = requests.get(url_kino_baza, params=params)
+                    response = requests.get(url_kino_baza, params=params, timeout=HTTP_TIMEOUT)
                     if response.status_code == 200:
                         data = response.json()
                         kinopoisk_id = data['Remark']
@@ -214,7 +233,7 @@ async def what_show_can_be_sell_pushkin_card():
             "apiKey": "txjo5hdvmmgqs7frjb64",
             'status': 'accepted',
         }
-        response = requests.get(url_prokultura, params=params)
+        response = requests.get(url_prokultura, params=params, timeout=HTTP_TIMEOUT)
 
         if response.status_code == 200:
             data = response.json()
@@ -266,7 +285,8 @@ async def get_kinopoisk_info():
             with conn.cursor() as curs:
                 curs.execute(
                     "SELECT kinopoisk_id FROM show "
-                    "WHERE kinopoisk_id IS NOT NULL AND (poster IS NULL OR poster = '');"
+                    "WHERE kinopoisk_id IS NOT NULL AND (poster IS NULL OR poster = '') "
+                    "LIMIT 20;"
                 )
                 shows = curs.fetchall()
                 for show in shows:
@@ -274,6 +294,7 @@ async def get_kinopoisk_info():
                     response = requests.get(
                         f'https://api.kinopoisk.dev/v1/movie/{kinopoisk_id}',
                         params={"token": kinopoisk_token},
+                        timeout=HTTP_TIMEOUT,
                     )
                     if response.status_code == 403:
                         try:
@@ -303,23 +324,68 @@ async def get_kinopoisk_info():
 
 async def all_performances_request():
     params = {"sp": "Wga_GetPerformance", "df": "J"}
-    response = requests.get(url_kino_baza, params=params)
-    logger.info(f"all_performances_request {params=}")
+    logger.info(f"all_performances_request start {params=}")
 
-    if response.status_code == 200:
+    try:
+        response = requests.get(url_kino_baza, params=params, timeout=HTTP_TIMEOUT)
+    except Exception as e:
+        logger.exception("all_performances_request: запрос не выполнен")
+        await notify_admin(f'Ошибка all_performances_request (запрос)\n{e}')
+        return
+
+    if response.status_code != 200:
+        await notify_admin(f'Ошибка all_performances_request: код {response.status_code}')
+        return
+
+    try:
+        data = response.json()
+    except Exception as e:
+        logger.exception("all_performances_request: битый JSON")
+        await notify_admin(f'Ошибка all_performances_request (JSON)\n{e}')
+        return
+
+    # Сначала разбираем всё в память. Если ответ битый — старое расписание не трогаем.
+    rows = []
+    for item in data:
         try:
-            data = response.json()
-            with psycopg2.connect(db_path) as conn:
+            try:
+                dt = datetime.datetime.strptime(item['DateTime'], "%B %d %Y %I:%M:%S:%f%p")
+            except ValueError:
+                dt = datetime.datetime.strptime(item['DateTime'], "%b %d %Y %I:%M:%S:%f%p")
+            rows.append((
+                item['IdPerformance'], item['IdShow'], item['IdBuilding'],
+                item['HallName'], dt.strftime('%Y-%m-%d'), dt.strftime('%H:%M'),
+                item['MinPrice'], item['MaxPrice'], item['FreePlace'],
+                item['BuildingName'], item['IdHall'],
+            ))
+        except Exception as e:
+            logger.exception(f"Ошибка при разборе performance: {e}")
+
+    if not rows:
+        logger.error("all_performances_request: 0 валидных сеансов — расписание оставлено прежним")
+        await notify_admin('all_performances_request: API вернул 0 валидных сеансов, '
+                           'расписание оставлено прежним')
+        return
+
+    inserted = 0
+    try:
+        conn = psycopg2.connect(db_path, connect_timeout=10)
+        try:
+            with conn:
                 with conn.cursor() as curs:
+                    # show_id — внешний ключ. Без заглушек один неизвестный фильм
+                    # рвёт транзакцию и обнуляет всё расписание.
+                    curs.execute(
+                        "INSERT INTO show (show_id) "
+                        "SELECT DISTINCT x FROM unnest(%s::bigint[]) AS t(x) "
+                        "WHERE x IS NOT NULL "
+                        "ON CONFLICT (show_id) DO NOTHING;",
+                        ([r[1] for r in rows],),
+                    )
                     curs.execute("DELETE FROM performance")
-                    for item in data:
+                    for row in rows:
                         try:
-                            try:
-                                dt = datetime.datetime.strptime(item['DateTime'], "%B %d %Y %I:%M:%S:%f%p")
-                            except ValueError:
-                                dt = datetime.datetime.strptime(item['DateTime'], "%b %d %Y %I:%M:%S:%f%p")
-                            date_str = dt.strftime('%Y-%m-%d')
-                            time_str = dt.strftime('%H:%M')
+                            curs.execute("SAVEPOINT perf_sp")
                             curs.execute(
                                 """INSERT INTO performance (
                                     performance_id, show_id, building_id, hallname,
@@ -327,20 +393,23 @@ async def all_performances_request():
                                     building_name, hall_id
                                 ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                                 ON CONFLICT (performance_id) DO NOTHING;""",
-                                (
-                                    item['IdPerformance'], item['IdShow'], item['IdBuilding'],
-                                    item['HallName'], date_str, time_str,
-                                    item['MinPrice'], item['MaxPrice'], item['FreePlace'],
-                                    item['BuildingName'], item['IdHall'],
-                                ),
+                                row,
                             )
+                            curs.execute("RELEASE SAVEPOINT perf_sp")
+                            inserted += 1
                         except Exception as e:
-                            logger.exception(f"Ошибка при вставке performance: {e}")
-        except Exception as e:
-            logger.exception("Ошибка all_performances_request")
-            await notify_admin(f'Ошибка all_performances_request\n{e}')
-    else:
-        await notify_admin(f'Ошибка all_performances_request: код {response.status_code}')
+                            # без отката до savepoint транзакция остаётся aborted
+                            # и commit молча превращается в rollback
+                            curs.execute("ROLLBACK TO SAVEPOINT perf_sp")
+                            logger.exception(f"Ошибка при вставке performance {row[0]}: {e}")
+        finally:
+            conn.close()
+        logger.info(f"all_performances_request: записано {inserted} из {len(rows)}")
+        if inserted == 0:
+            await notify_admin('all_performances_request: ни один сеанс не записан!')
+    except Exception as e:
+        logger.exception("Ошибка all_performances_request")
+        await notify_admin(f'Ошибка all_performances_request\n{e}')
 
 
 # ─── Регистрация / ФИО пользователя ──────────────────────────────────────────
@@ -364,7 +433,7 @@ def user_reg(user_id: int, chat_id: int) -> dict:
                 }
                 # buyer_id = 998277
                 try:
-                    response = requests.get(url_kino_baza, params=params)
+                    response = requests.get(url_kino_baza, params=params, timeout=HTTP_TIMEOUT)
                     response_data = response.json()
                     buyer_id = response_data['IdClient']
                 except Exception:
@@ -404,7 +473,7 @@ def user_fio_save(user_id: int, chat_id: int, name: str, surname: str, patronymi
                     "df": "J",
                 }
                 try:
-                    buyer_id = requests.get(url_kino_baza, params=params).json()['IdClient']
+                    buyer_id = requests.get(url_kino_baza, params=params, timeout=HTTP_TIMEOUT).json()['IdClient']
                 except Exception:
                     logger.exception("user_fio_save")
                     buyer_id = 998277
@@ -453,7 +522,8 @@ def validate_pochta_bank(buyer_info, rrn, event_id, place_id, event_session_time
     }
     response = requests.post(
         validation_url, headers=headers,
-        params={"online": "false"}, json=json_data
+        params={"online": "false"}, json=json_data,
+        timeout=HTTP_TIMEOUT,
     )
     if response.status_code == 200:
         resp = response.json()
@@ -540,7 +610,8 @@ async def send_xml_to_ekinobilet(performance_data, show_data, payment, fond_kino
                     response = requests.post(
                         'https://ekinobilet.ru/ekbs/upload.aspx',
                         data=auth,
-                        files={'XMLfile': f}
+                        files={'XMLfile': f},
+                        timeout=HTTP_TIMEOUT,
                     )
                     break
                 except Exception:
@@ -594,11 +665,17 @@ async def check_payment_status(payment_id: str, report: bool = True):
         with conn.cursor() as curs:
             curs.execute("SELECT * FROM orders WHERE payment_id = %s", (payment_id,))
             order_data = curs.fetchone()
+            if order_data is None:
+                logger.error(f"check_payment_status: заказ по payment_id={payment_id} не найден")
+                return is_succeeded
             curs.execute(
                 "SELECT name, surname, patronymic, max_chat_id FROM users WHERE user_id = %s;",
                 (order_data[1],)
             )
             user = curs.fetchone()
+            if user is None:
+                logger.error(f"check_payment_status: пользователь {order_data[1]} не найден")
+                return is_succeeded
 
     fio = f"{user[1]} {user[0]} {user[2]}".strip()
     order_id = order_data[0]
@@ -625,7 +702,7 @@ async def check_payment_status(payment_id: str, report: bool = True):
         params = {"sp": "WgA_SetOrderToNull", "idOrder": order_id, "df": "J"}
         for _ in range(5):
             try:
-                requests.get(url_kino_baza, params=params)
+                requests.get(url_kino_baza, params=params, timeout=HTTP_TIMEOUT)
                 break
             except Exception as e:
                 await notify_admin(f'!!!!Ошибка отмены заказа {order_id}: {e}')
@@ -777,7 +854,7 @@ async def check_payment_status(payment_id: str, report: bool = True):
                     }
                     for _ in range(5):
                         try:
-                            resp = requests.get(url_kino_baza, params=params)
+                            resp = requests.get(url_kino_baza, params=params, timeout=HTTP_TIMEOUT)
                             break
                         except Exception:
                             time.sleep(7)
@@ -907,7 +984,7 @@ def unblock_all(user_id: int, performance_id: int, place_id, loop):
                 params = {"sp": "WgA_SetOrderToNull", "idOrder": order[3], "df": "J"}
                 for _ in range(5):
                     try:
-                        requests.get(url_kino_baza, params=params)
+                        requests.get(url_kino_baza, params=params, timeout=HTTP_TIMEOUT)
                         break
                     except Exception as e:
                         loop.run_until_complete(notify_admin(f'!!!!Ошибка unblock_all: {e}'), loop)
@@ -944,7 +1021,7 @@ async def unblock_5_min():
             params = {"sp": "WgA_SetOrderToNull", "idOrder": order[4], "df": "J"}
             for _ in range(5):
                 try:
-                    response = requests.get(url_kino_baza, params=params)
+                    response = requests.get(url_kino_baza, params=params, timeout=HTTP_TIMEOUT)
                     logger.info(decode_unicode(response.text))
                     break
                 except Exception as e:

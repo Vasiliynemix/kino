@@ -94,12 +94,17 @@ async def send_dates(callback: MessageCallback) -> None:
         with conn.cursor() as curs:
 
             # --- ОРИГИНАЛЬНАЯ ЛОГИКА БЕЗ ГОРОДОВ ---
+            # окно ровно 7 дней вперёд: сегодня .. сегодня+6,
+            # иначе выборка упиралась в 7 первых дат и следующая неделя не показывалась
+            week_ahead = (today_dt.date() + datetime.timedelta(days=6)).strftime('%Y-%m-%d')
             curs.execute(
-                """SELECT DISTINCT DATE(date)
+                """SELECT DISTINCT DATE(date) AS d
                    FROM performance
-                   WHERE date > %s OR (%s = date AND %s <= time)
-                   ORDER BY date ASC;""",
-                (today_date, today_date, today_time),
+                   WHERE (date > %s OR (%s = date AND %s <= time))
+                     AND date <= %s
+                   ORDER BY d ASC
+                   LIMIT 7;""",
+                (today_date, today_date, today_time, week_ahead),
             )
             dates = curs.fetchall()
 
@@ -122,20 +127,15 @@ async def send_dates(callback: MessageCallback) -> None:
         elif date == tomorrow:
             formatted_dates.append('Завтра')
         else:
-            day = date.strftime('%e')
+            day = date.day
             month = months_ru[date.month]
             formatted_dates.append(f"{day} {month}")
 
-    # --- кнопки 1 в ряд, максимум 7 (как в оригинале) ---
-    buttons = []
-    i = 0
-    while i < len(formatted_dates):
-        buttons.append([
-            (formatted_dates[i], f"choose_date {date_list[i]}")
-        ])
-        i += 1
-        if i % 7 == 0:
-            break
+    # --- кнопки 1 в ряд; окно и лимит 7 уже заданы запросом ---
+    buttons = [
+        [(formatted_dates[i], f"choose_date {date_list[i]}")]
+        for i in range(len(formatted_dates))
+    ]
 
     try:
         if len(buttons) == 0:
