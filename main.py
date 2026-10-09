@@ -244,6 +244,10 @@ async def callback_router(callback: MessageCallback, context: BaseContext):
     # ── Выбор города ─────────────────────────────────────────────────────────
     if payload.startswith('choose_cinema '):
         city = payload.split(' ', 1)[1]
+        if city in send_messages.HIDDEN_CITIES:
+            # старая кнопка из истории чата — показываем актуальный список
+            await send_messages.send_cinemas(chat_id, user_id)
+            return
         with psycopg2.connect(db_path) as conn:
             with conn.cursor() as curs:
                 curs.execute(

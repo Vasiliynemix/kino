@@ -60,6 +60,19 @@ else:
 
 CustomLogger().add_logger(os.path.join(Path(__file__).parent.parent.parent, "logs", "info_server.log"), __name__)
 
+# города, скрытые в боте (держать в синхроне с HIDDEN_CITIES в send_messages.py)
+HIDDEN_CITIES = ("Новосибирск", "Бийск")
+
+
+def is_hidden_performance(performance_id) -> bool:
+    with psycopg2.connect(db_path) as data:
+        with data.cursor() as curs:
+            curs.execute(
+                """SELECT 1 FROM performance p JOIN cinemas c ON c.building_id = p.building_id
+                   WHERE p.performance_id = %s AND c.city = ANY(%s)""",
+                (performance_id, list(HIDDEN_CITIES)))
+            return curs.fetchone() is not None
+
 
 def serialize_attachments(attachments):
     return [a.model_dump() for a in attachments]
@@ -277,6 +290,11 @@ def finishpayment(request, order_id):
 
 
 def kino(request, performance_id, user_id):
+    # старые ссылки на сеансы скрытых городов: новые брони не принимаем,
+    # уже начатые заказы пользователя доводим до конца
+    if is_hidden_performance(performance_id) and not check_user_performance(user_id, performance_id):
+        return HttpResponse("Продажа билетов на этот сеанс недоступна", content_type="text/plain; charset=utf-8")
+
     try:
         with psycopg2.connect(db_path) as data:
             with data.cursor() as curs:

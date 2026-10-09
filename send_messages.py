@@ -14,6 +14,9 @@ from pkg.log import CustomLogger
 
 CustomLogger().add_logger(info_log_file, __name__)
 
+# города, скрытые из выбора в боте (кинотеатры остаются в БД)
+HIDDEN_CITIES = ("Новосибирск", "Бийск")
+
 
 def _inline(rows: list[list[tuple[str, str]]]):
     return ButtonsPayload(
@@ -49,7 +52,10 @@ async def send_cinemas(chat_id: int, user_id: int) -> None:
     """Шаг 1: показать ФИО + кнопки выбора города."""
     with psycopg2.connect(db_path) as conn:
         with conn.cursor() as curs:
-            curs.execute("SELECT DISTINCT city FROM cinemas;")
+            curs.execute(
+                "SELECT DISTINCT city FROM cinemas WHERE city <> ALL(%s);",
+                (list(HIDDEN_CITIES),),
+            )
             cinemas = curs.fetchall()
             curs.execute(
                 "SELECT name, surname, patronymic FROM users WHERE user_id = %s;",
@@ -102,9 +108,14 @@ async def send_dates(callback: MessageCallback) -> None:
                    FROM performance
                    WHERE (date > %s OR (%s = date AND %s <= time))
                      AND date <= %s
+                     AND NOT EXISTS (
+                         SELECT 1 FROM cinemas c
+                         WHERE c.building_id = performance.building_id
+                           AND c.city = ANY(%s)
+                     )
                    ORDER BY d ASC
                    LIMIT 7;""",
-                (today_date, today_date, today_time, week_ahead),
+                (today_date, today_date, today_time, week_ahead, list(HIDDEN_CITIES)),
             )
             dates = curs.fetchall()
 
@@ -159,13 +170,19 @@ async def send_movies(callback: MessageCallback, date: str) -> None:
     """Шаг 3: показать фильмы с сеансами. Каждый сеанс — ссылка на сайт выбора мест."""
     chat_id, user_id = callback.get_ids()
 
+    with psycopg2.connect(db_path) as conn:
+        with conn.cursor() as curs:
+            curs.execute("SELECT city FROM users WHERE user_id = %s;", (user_id,))
+            city_row = curs.fetchone()
+    city = city_row[0] if city_row else None
+    if city is None or city in HIDDEN_CITIES:
+        # город не выбран или скрыт — просим выбрать заново
+        await send_cinemas(chat_id, user_id)
+        return
+
     try:
         with psycopg2.connect(db_path) as conn:
             with conn.cursor() as curs:
-                curs.execute("SELECT city FROM users WHERE user_id = %s;", (user_id,))
-                city_row = curs.fetchone()
-                city = city_row[0] if city_row else "Новосибирск"
-
                 curs.execute("SELECT building_id FROM cinemas WHERE city = %s;", (city,))
                 cinemas_list = [r[0] for r in curs.fetchall()]
 
