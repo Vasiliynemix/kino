@@ -26,7 +26,8 @@ print(f"Внешний IP сервера: страна {country}")
 auth = pochta_bank_token if pochta_bank_token.startswith("Bearer ") else f"Bearer {pochta_bank_token}"
 try:
     r = requests.post(validation_url, params={"online": "false"}, json={},
-                      headers={"Authorization": auth, "User-Agent": pushkin.USER_AGENT}, timeout=30)
+                      headers={"Authorization": auth, "User-Agent": pushkin.USER_AGENT}, timeout=30,
+                      verify=pushkin.VTB_CA_FILE)
 except Exception as e:
     raise SystemExit(f"❌ Банк не ответил: {e}\n"
                      f"   Если страна не RU — сервер или VPN за границей, банк таких не обслуживает.")

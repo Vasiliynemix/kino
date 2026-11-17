@@ -54,7 +54,7 @@ class Resp:
 vtb = {"resp": None}
 
 
-def fake_post(url, headers, params, json, timeout):
+def fake_post(url, headers, params, json, timeout, **kw):
     calls.append((json, headers, params))
     return vtb["resp"]
 

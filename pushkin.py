@@ -10,6 +10,7 @@
 import datetime
 import hashlib
 import re
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import requests
@@ -146,6 +147,12 @@ def is_foreign_card(first6: str | None) -> bool:
     return bool(first6) and not str(first6).startswith(PUSHKIN_CARD_FIRST6)
 
 
+# Сертификат pushkin.api.vtb.ru выдан УЦ Минцифры («Russian Trusted Root CA»),
+# которого нет в стандартном наборе Python. Используется только для запросов в ВТБ.
+# Источник: https://gu-st.ru/content/lending/russian_trusted_root_ca_pem.crt
+# SHA-256: D2:6D:2D:02:31:B7:C3:9F:92:CC:73:85:12:BA:54:10:35:19:E4:40:5D:68:B5:BD:70:3E:97:88:CA:8E:CF:31
+VTB_CA_FILE = str(Path(__file__).parent / "deploy" / "certs" / "russian_trusted_root_ca.pem")
+
 # сервис ВТБ требует браузерный User-Agent
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0"
 
@@ -177,7 +184,8 @@ def validate(url: str, token: str, timeout, *, buyer: str, term_inst_id: str, rr
     auth = token if token.startswith("Bearer ") else f"Bearer {token}"
     try:
         response = requests.post(url, headers={"Authorization": auth, "User-Agent": USER_AGENT},
-                                 params={"online": "false"}, json=body, timeout=timeout)
+                                 params={"online": "false"}, json=body, timeout=timeout,
+                                 verify=VTB_CA_FILE)
     except Exception as e:
         return "ERROR", f"нет связи с сервисом оператора: {e}", None
     if response.status_code == 425:
