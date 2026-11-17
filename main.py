@@ -53,6 +53,23 @@ def validate_name(name: str) -> bool:
     return bool(re.match(r'^[А-ЯЁ][а-яё]+(-[А-ЯЁ][а-яё]+)?$', name))
 
 
+REGISTER_AGAIN_TEXT = (
+    'Чтобы продолжить, нужно заново пройти регистрацию.\n'
+    'Отправьте /start'
+)
+
+
+def is_registered(user_id: int) -> bool:
+    """Пользователь есть в базе, указал ФИО и дал согласие на обработку ПД."""
+    with psycopg2.connect(db_path) as conn:
+        with conn.cursor() as curs:
+            curs.execute(
+                "SELECT 1 FROM users WHERE user_id = %s AND name IS NOT NULL AND agreement IS TRUE",
+                (user_id,),
+            )
+            return curs.fetchone() is not None
+
+
 # ─── Любое сообщение без активного состояния — стартовая точка ───────────────
 
 @dp.bot_started()
@@ -229,6 +246,9 @@ async def callback_router(callback: MessageCallback, context: BaseContext):
     if payload == 'pd_agree':
         current_state = await state.get_state()
         if current_state != UserState.waiting_for_pd_agreement.name:
+            # старая кнопка из истории чата
+            if not is_registered(user_id):
+                await bot.send_message(chat_id, user_id, REGISTER_AGAIN_TEXT)
             return
         data = await state.get_data()
         base_requests.user_fio_save(
@@ -242,6 +262,13 @@ async def callback_router(callback: MessageCallback, context: BaseContext):
         await state.clear()
         await bot.send_message(chat_id, user_id, '✅ Согласие принято. Регистрация завершена.')
         await send_messages.send_cinemas(chat_id, user_id)
+        return
+
+    # ── Остальные кнопки — только для зарегистрированных ─────────────────────
+    # (старые кнопки из истории чата у пользователей, которых нет в базе)
+    if not is_registered(user_id):
+        await state.clear()
+        await bot.send_message(chat_id, user_id, REGISTER_AGAIN_TEXT)
         return
 
     # ── Выбор города ─────────────────────────────────────────────────────────

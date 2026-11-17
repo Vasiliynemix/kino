@@ -327,6 +327,21 @@ def finishpayment(request, order_id):
 
 
 def kino(request, performance_id, user_id):
+    # старая ссылка на сеанс у пользователя, которого нет в базе (или без ФИО/согласия)
+    try:
+        with psycopg2.connect(db_path) as data:
+            with data.cursor() as curs:
+                curs.execute("SELECT 1 FROM users WHERE user_id = %s AND name IS NOT NULL "
+                             "AND agreement IS TRUE", (user_id,))
+                registered = curs.fetchone() is not None
+    except Exception:
+        logger.exception("kino: проверка регистрации")
+        registered = True
+    if not registered:
+        return HttpResponse("Чтобы купить билет, вернитесь в бота и отправьте /start — "
+                            "нужно заново пройти регистрацию.",
+                            content_type="text/plain; charset=utf-8")
+
     # старые ссылки на сеансы скрытых городов: новые брони не принимаем,
     # уже начатые заказы пользователя доводим до конца
     if is_hidden_performance(performance_id) and not check_user_performance(user_id, performance_id):
