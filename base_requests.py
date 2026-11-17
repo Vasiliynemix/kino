@@ -9,7 +9,6 @@ base_requests.py
 """
 import asyncio
 import datetime
-import hashlib
 import json
 import os
 import re
@@ -23,7 +22,7 @@ import requests
 from docx import Document
 from loguru import logger
 from maxapi.types import ButtonsPayload, LinkButton
-from yookassa import Payment, Configuration
+from yookassa import Payment, Configuration, Refund
 
 from config import (
     db_path,
@@ -39,8 +38,10 @@ from config import (
     url_prokultura,
     youkassa_shop_id,
     youkassa_secret_key,
-    validation_url, url_server, get_loop,
+    validation_url, url_server, get_loop, pushkin_term_inst_id,
+    pochta_bank_token_expires, prokultura_api_key, ekinobilet_login, ekinobilet_password,
 )
+import pushkin
 from pkg.log import CustomLogger
 
 CustomLogger().add_logger(info_log_file, __name__)
@@ -57,6 +58,8 @@ ADMIN_ID_2 = 1013689498  # Антон
 def film_update_main():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+    ensure_schema()
+    loop.run_until_complete(check_token_expiry())
     i = 1
     kinopoisk_enabled = True
     last_check_date = datetime.date.today()
@@ -72,6 +75,7 @@ def film_update_main():
                 kinopoisk_enabled = True
                 last_check_date = today
                 logger.info("Новый день — kinopoisk_enabled=True")
+                loop.run_until_complete(check_token_expiry())
 
             kinopoisk_enabled = run_tasks(i, kinopoisk_enabled, loop)
 
@@ -121,9 +125,37 @@ def safe_execute(func, name, **kwargs):
     #     logger.info(f"{name} stop")
 
 
+# за сколько дней до окончания токена оператора напоминать админу
+TOKEN_REMIND_DAYS = (30, 14, 7, 3, 1)
+
+
+async def check_token_expiry():
+    """Токен сервиса оператора живёт год; без него билеты не пройдут проверку."""
+    if not pochta_bank_token_expires:
+        await notify_admin('!!!!Не задан POCHTA_BANK_TOKEN_EXPIRES — срок токена оператора не отслеживается')
+        return
+    expires = datetime.date.fromisoformat(pochta_bank_token_expires)
+    days_left = (expires - datetime.date.today()).days
+    if days_left <= 0:
+        await notify_admin(f'!!!!Токен оператора Пушкинской карты истёк {expires:%d.%m.%Y}. '
+                           f'Продажи по Пушкинской карте не пройдут проверку. Получите новый токен '
+                           f'на PRO.Культура.РФ и замените POCHTA_BANK_TOKEN и POCHTA_BANK_TOKEN_EXPIRES.')
+    elif days_left in TOKEN_REMIND_DAYS:
+        await notify_admin(f'Токен оператора Пушкинской карты истекает {expires:%d.%m.%Y} '
+                           f'(через {days_left} дн.). Получите новый токен на PRO.Культура.РФ '
+                           f'и замените POCHTA_BANK_TOKEN и POCHTA_BANK_TOKEN_EXPIRES.')
+
+
+def ensure_schema():
+    with psycopg2.connect(db_path) as conn:
+        with conn.cursor() as curs:
+            pushkin.ensure_schema(curs)
+
+
 def process_orders():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+    ensure_schema()
     while True:
         try:
             with psycopg2.connect(db_path) as conn:
@@ -224,56 +256,56 @@ def normalize_name(name: str) -> str:
 
 
 async def what_show_can_be_sell_pushkin_card():
+    """
+    Синхронизация с реестром /pushkinsCardEvents.
+    Продавать можно только то, что есть в реестре сейчас, поэтому при любом сбое
+    (неполный ответ, ошибка) старые данные не трогаем и сообщаем админу.
+    """
     try:
         params = {
-            "organizations": "31698",
-            'limit': '100',
+            "organizations": str(pushkin.ORGANIZATION_ID),
             'categories': 'kino',
             "isPushkinsCard": "true",
-            "apiKey": "txjo5hdvmmgqs7frjb64",
+            "apiKey": prokultura_api_key,
             'status': 'accepted',
         }
-        response = requests.get(url_prokultura, params=params, timeout=HTTP_TIMEOUT)
+        events = pushkin.fetch_all_events(url_prokultura, params, HTTP_TIMEOUT)
 
-        if response.status_code == 200:
-            data = response.json()
-            with open('data_prokult.json', 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=4, ensure_ascii=False)
+        with open('data_prokult.json', 'w', encoding='utf-8') as f:
+            json.dump({"events": events, "total": len(events)}, f, indent=4, ensure_ascii=False)
 
-            accepted_films_list = []
-            pu_number_list = {}
-            id_procult_list = {}
+        by_name = {}
+        for event in events:
+            if event.get('organization', {}).get('_id') != pushkin.ORGANIZATION_ID:
+                continue
+            match = re.search(r'«(.+)', event['name'])
+            film_name = normalize_name(match.group(1) if match else event['name'])
+            by_name.setdefault(film_name, []).append(event)
 
-            for event in data['events']:
-                match = re.search(r'«(.+)', event['name'])
-                try:
-                    film_name = match.group(1) if match else event['name']
-                    film_name = normalize_name(film_name)
-                except Exception as e:
-                    logger.exception(f"Ошибка в what_show_can_be_sell_pushkin_card: {e}")
-                    continue
-                pu_number_list[film_name] = event['rentalCertificate'][0]
-                id_procult_list[film_name] = event['_id']
-                accepted_films_list.append(film_name)
-
-            with psycopg2.connect(db_path) as conn:
-                with conn.cursor() as curs:
-                    curs.execute("SELECT DISTINCT name FROM show;")
-                    shows = curs.fetchall()
-                    for show in shows:
-                        film_name = normalize_name(show[0])
-                        if film_name in accepted_films_list:
+        with psycopg2.connect(db_path) as conn:
+            with conn.cursor() as curs:
+                curs.execute("SELECT show_id, name FROM show WHERE name IS NOT NULL;")
+                shows = curs.fetchall()
+                curs.execute("DELETE FROM pushkin_periods;")
+                for show_id, name in shows:
+                    film_events = by_name.get(normalize_name(name))
+                    if not film_events:
+                        curs.execute("UPDATE show SET pushkin_card = 0 WHERE show_id = %s", (show_id,))
+                        continue
+                    first = film_events[0]
+                    curs.execute(
+                        "UPDATE show SET pushkin_card = 1, pu_number = %s, id_procult = %s WHERE show_id = %s",
+                        ((first.get('rentalCertificate') or [None])[0], first['_id'], show_id),
+                    )
+                    for event in film_events:
+                        for place_id, place_name, city, tz, start_ms, end_ms in pushkin.event_periods(event):
                             curs.execute(
-                                "UPDATE show SET pushkin_card = 1, pu_number = %s, id_procult = %s WHERE name = %s",
-                                (pu_number_list[film_name], id_procult_list[film_name], show[0]),
+                                """INSERT INTO pushkin_periods (show_id, event_id, organization_id, place_id,
+                                                               place_name, city, tz, start_ms, end_ms)
+                                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                                (show_id, event['_id'], pushkin.ORGANIZATION_ID, place_id,
+                                 place_name, city, tz, start_ms, end_ms),
                             )
-                        else:
-                            curs.execute(
-                                "UPDATE show SET pushkin_card = 0 WHERE name = %s", (show[0],)
-                            )
-        else:
-            await notify_admin(f'Ошибка what_show_can_be_sell_pushkin_card: код {response.status_code} '
-                               f'текст {response.text}')
     except Exception as e:
         logger.exception("Ошибка what_show_can_be_sell_pushkin_card")
         await notify_admin(f'Ошибка what_show_can_be_sell_pushkin_card\n{e}')
@@ -501,47 +533,92 @@ def user_fio_save(user_id: int, chat_id: int, name: str, surname: str, patronymi
             }
 
 
-# ─── Валидация Почта Банк ─────────────────────────────────────────────────────
-def validate_pochta_bank(buyer_info, rrn, event_id, place_id, event_session_timestamp,
-                         term_inst_id="11132", organization_id="31698",
-                         client_buy_ip_address="0.0.0.0"):
-    buyer_hash = hashlib.sha512(buyer_info.encode('utf-8')).hexdigest()
-    json_data = {
-        "buyer": buyer_hash,
-        "termInstId": term_inst_id,
-        "rrn": rrn,
-        "eventId": event_id,
-        "placeId": place_id,
-        "organizationId": organization_id,
-        "eventSessionTimestamp": event_session_timestamp,
-        "clientBuyIpAddress": client_buy_ip_address,
-    }
-    headers = {
-        "Authorization": pochta_bank_token,
-        'User-Agent': 'Mozilla/5.0',
-    }
-    response = requests.post(
-        validation_url, headers=headers,
-        params={"online": "false"}, json=json_data,
-        timeout=HTTP_TIMEOUT,
-    )
-    if response.status_code == 200:
-        resp = response.json()
-        result = resp.get("result")
-        if result == "ACCEPTED":
-            return True, ""
-        if result == "DECLINED":
-            reason_map = {
-                "PERSONAL_DATA": "Несоответствие ФИО покупателя ФИО держателя карты",
-                "EVENT": "Проблема с параметрами мероприятия",
-                "MULTISESSION": "Попытка купить более одного билета на один сеанс",
-                "PRICE": "Некорректная стоимость билета",
-                "OTHER": "",
-            }
-            return False, reason_map.get(resp.get("reason", "OTHER"), "")
+# ─── Сервис оператора «Пушкинской карты» (метод tickets/check, ВТБ) ──────────
+# сколько ждём результата от первого запроса, прежде чем отменить покупку
+# (спецификация ВТБ: нет accepted/declined за 5 минут — оформить отмену)
+VALIDATION_DEADLINE_SEC = 5 * 60
+
+
+async def operator_check(payment, order_id, performance_id, user) -> tuple[str, str]:
+    """
+    Одобрение оператора на выдачу билета. Решение сохраняется в orders.validation,
+    повторно сервис не вызывается (повторный запрос по одобренной покупке он отклоняет).
+    Возвращает ("ACCEPTED", "") | ("DECLINED", причина) | ("ERROR", описание).
+    """
+    now = int(time.time())
+    with psycopg2.connect(db_path) as conn:
+        with conn.cursor() as curs:
+            curs.execute(
+                "SELECT validation, validation_reason, client_ip, validation_started "
+                "FROM orders WHERE order_id = %s",
+                (order_id,),
+            )
+            validation, validation_reason, client_ip, started = curs.fetchone()
+            if validation == 'accepted':
+                return "ACCEPTED", ""
+            if validation == 'declined':
+                return "DECLINED", validation_reason or ""
+            if started is None:
+                started = now
+                curs.execute("UPDATE orders SET validation_started = %s WHERE order_id = %s",
+                             (started, order_id))
+
+            event = pushkin.find_event(curs, performance_id)
+            curs.execute("SELECT date, time FROM performance WHERE performance_id = %s", (performance_id,))
+            perf = curs.fetchone()
+
+    signature = None
+    rrn = getattr(getattr(payment, 'authorization_details', None), 'rrn', None)
+    first6 = getattr(getattr(getattr(payment, 'payment_method', None), 'card', None), 'first6', None)
+    if pushkin.is_foreign_card(first6):
+        # в сервис ВТБ отправляем только операции по Пушкинской карте
+        verdict, reason = "DECLINED", "оплатить билет можно только Пушкинской картой"
+    elif event is None or perf is None:
+        verdict, reason = "DECLINED", "сеанс не входит в программу «Пушкинская карта»"
+    elif not rrn:
+        verdict, reason = "WAIT", "в платеже ещё нет RRN"
     else:
-        logger.info(f"validate_pochta_bank {response.status_code=}, {response.text=}")
-        return False, "400"
+        verdict, reason, signature = pushkin.validate(
+            validation_url, pochta_bank_token, HTTP_TIMEOUT,
+            buyer=pushkin.buyer_hash(user[1], user[0], user[2]),
+            term_inst_id=pushkin_term_inst_id,
+            rrn=rrn,
+            # фактически списанная сумма — иначе отказ NOT_EQUAL_PRICE
+            price=f"{float(payment.amount.value):.2f}",
+            event_id=event['event_id'],
+            place_id=event['place_id'],
+            organization_id=event['organization_id'],
+            event_session_timestamp=pushkin.session_timestamp(perf[0], perf[1]),
+            client_ip=client_ip,
+        )
+    logger.info(f"operator_check order {order_id}: {verdict} {reason}")
+
+    if verdict in ("ERROR", "WAIT"):
+        if now - started <= VALIDATION_DEADLINE_SEC:
+            # 425 и отсутствие RRN — штатное ожидание, админа не дёргаем
+            if verdict == "ERROR" and validation != 'error':
+                await notify_admin(f'!!!!Нет ответа оператора Пушкинской карты, заказ {order_id} ждёт '
+                                   f'(деньги заморожены)\n{reason}')
+                with psycopg2.connect(db_path) as conn:
+                    with conn.cursor() as curs:
+                        curs.execute("UPDATE orders SET validation = 'error', validation_reason = %s "
+                                     "WHERE order_id = %s", (reason, order_id))
+            return "ERROR", reason
+        # без одобрения билет выдавать нельзя — отменяем покупку
+        await notify_admin(f'!!!!Заказ {order_id} отменён: нет одобрения оператора за 5 минут\n{reason}')
+        verdict, reason = "DECLINED", ("не удалось получить одобрение банка-оператора. "
+                                       "Попробуйте купить билет заново")
+
+    with psycopg2.connect(db_path) as conn:
+        with conn.cursor() as curs:
+            curs.execute(
+                "UPDATE orders SET validation = %s, validation_reason = %s, validation_signature = %s "
+                "WHERE order_id = %s",
+                ('accepted' if verdict == "ACCEPTED" else 'declined', reason, signature, order_id),
+            )
+    if verdict == "DECLINED":
+        await notify_admin(f'Заказ {order_id} отклонён: {reason}')
+    return verdict, reason
 
 
 # ─── Отправка XML в Министерство ─────────────────────────────────────────────
@@ -586,8 +663,8 @@ async def send_xml_to_ekinobilet(performance_data, show_data, payment, fond_kino
         form.set('webtax_included', 'false')
         form.set('payment_type', '1')
         form.set('payment_id', str(rrn))
-        form.set('terminal_id', '26485891')
-        form.set('terminal_owner', '5402052576')
+        form.set('terminal_id', '34429403')
+        form.set('terminal_owner', '5402033573')
 
         xml_data = ET.tostring(root_el, encoding='utf-8')
         xml_dir = os.path.join(root_path, "xml_files")
@@ -603,7 +680,11 @@ async def send_xml_to_ekinobilet(performance_data, show_data, payment, fond_kino
         except Exception:
             logger.exception("send_document_sync")
 
-        auth = {'login': '505@mirkino.pro', 'password': 'pukugk'}
+        if not (ekinobilet_login and ekinobilet_password):
+            await notify_admin(f'!!!!Отчёт в ЕАИС не отправлен: нет EKINOBILET_LOGIN/EKINOBILET_PASSWORD в .env\n'
+                               f'order_id {order_id} файл {xml_file}')
+            return
+        auth = {'login': ekinobilet_login, 'password': ekinobilet_password}
         with open(xml_file, 'rb') as f:
             for _ in range(5):
                 try:
@@ -652,6 +733,29 @@ async def send_xml_to_ekinobilet(performance_data, show_data, payment, fond_kino
 
 
 # ─── Проверка статуса платежа ─────────────────────────────────────────────────
+async def refund_declined(payment, order_id, chat_id, user_id, reason):
+    """Отказ оператора по уже списанному платежу: отменить нельзя, только вернуть деньги."""
+    Refund.create({"payment_id": payment.id, "amount": {"value": payment.amount.value,
+                                                        "currency": payment.amount.currency}},
+                  str(order_id))
+    params = {"sp": "WgA_SetOrderToNull", "idOrder": order_id, "df": "J"}
+    for _ in range(5):
+        try:
+            requests.get(url_kino_baza, params=params, timeout=HTTP_TIMEOUT)
+            break
+        except Exception as e:
+            await notify_admin(f'!!!!Ошибка отмены заказа {order_id}: {e}')
+            time.sleep(7)
+    with psycopg2.connect(db_path) as conn:
+        with conn.cursor() as curs:
+            curs.execute("UPDATE orders SET status = 0 WHERE order_id = %s", (order_id,))
+    await notify_admin(f'!!!!Заказ {order_id}: возврат после отказа оператора ({reason})')
+    await send_message_sync(
+        chat_id, user_id,
+        f'Билет не может быть продан: {reason}.\nДеньги вернутся на вашу карту.',
+    )
+
+
 async def check_payment_status(payment_id: str, report: bool = True):
     is_succeeded = False
 
@@ -696,7 +800,13 @@ async def check_payment_status(payment_id: str, report: bool = True):
         return is_succeeded
 
     if payment_status == "waiting_for_capture":
-        Payment.capture(payment_id)
+        # деньги заморожены: списываем только после одобрения оператора,
+        # при отказе — отмена покупки (reversal), как требует ВТБ
+        verdict, _ = await operator_check(payment, order_id, performance_id, user)
+        if verdict == "ACCEPTED":
+            Payment.capture(payment_id)
+        elif verdict == "DECLINED":
+            Payment.cancel(payment_id)
 
     elif payment_status == 'canceled':
         params = {"sp": "WgA_SetOrderToNull", "idOrder": order_id, "df": "J"}
@@ -712,14 +822,30 @@ async def check_payment_status(payment_id: str, report: bool = True):
             with conn.cursor() as curs:
                 curs.execute("UPDATE orders SET status = 0 WHERE payment_id = %s", (payment_id,))
 
-        await send_message_sync(
-            chat_id,
-            user_id,
-            f'Заказ не был оплачен вовремя.',
-        )
+        with psycopg2.connect(db_path) as conn:
+            with conn.cursor() as curs:
+                curs.execute("SELECT validation, validation_reason FROM orders WHERE order_id = %s",
+                             (order_id,))
+                validation, validation_reason = curs.fetchone()
+        if validation == 'declined':
+            text = (f'Билет не может быть продан: {validation_reason}.\n'
+                    f'Покупка отменена, деньги вернутся на вашу карту.')
+        else:
+            text = 'Заказ не был оплачен вовремя.'
+        await send_message_sync(chat_id, user_id, text)
         return "canceled"
 
     elif payment_status == 'succeeded':
+        # Билет и отчёт в ЕАИС — только после одобрения оператора.
+        # Обычно оно уже получено на шаге waiting_for_capture; здесь доходят
+        # и старые одностадийные платежи, созданные до перехода на холдирование.
+        verdict, reason = await operator_check(payment, order_id, performance_id, user)
+        if verdict == "ERROR":
+            return is_succeeded
+        if verdict == "DECLINED":
+            await refund_declined(payment, order_id, chat_id, user_id, reason)
+            return is_succeeded
+
         is_succeeded = True
         is_fk_report_send = True
 
@@ -923,41 +1049,6 @@ async def check_payment_status(payment_id: str, report: bool = True):
                 performance_data, show_data, payment, fond_kino_id,
                 place, row, price, payment_id, order_id,
             )
-
-        # Валидация Почта Банк
-        try:
-            rrn = payment.authorization_details.rrn
-            with psycopg2.connect(db_path) as conn:
-                with conn.cursor() as curs:
-                    curs.execute(
-                        "SELECT date, time, show_id FROM performance WHERE performance_id = %s",
-                        (performance_id,)
-                    )
-                    perf = curs.fetchone()
-                    curs.execute("SELECT id_procult FROM show WHERE show_id = %s", (perf[2],))
-                    event_id = curs.fetchone()[0]
-
-            date_time_obj = datetime.datetime.strptime(f'{perf[0]} {perf[1]}', '%Y-%m-%d %H:%M')
-            event_session_timestamp = int(time.mktime(date_time_obj.timetuple()))
-
-            # ok, text = validate_pochta_bank(
-            #     buyer_info=fio, rrn=rrn, event_id=event_id,
-            #     place_id=place_id, event_session_timestamp=event_session_timestamp,
-            # )
-            # if not ok:
-            #     if text == "400":
-            #         return is_succeeded
-            #     await send_xml_to_ekinobilet(
-            #         performance_data, show_data, payment, fond_kino_id,
-            #         place, row, -price, payment_id, order_id,
-            #     )
-            #     await send_message_sync(
-            #         chat_id,
-            #         user_id,
-            #         f"Извините, возникла ошибка, деньги вернутся на вашу карту.\n{text}",
-            #     )
-        except Exception:
-            logger.exception("Ошибка валидации Почта Банк")
 
     return is_succeeded
 

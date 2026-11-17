@@ -26,7 +26,7 @@ if __name__ == '__main__':
     STATIC_DIR = os.path.join(BASE_DIR, 'static')
 
     cherrypy.config.update({
-        'server.socket_host': '127.0.0.1',
+        'server.socket_host': os.getenv('WEB_HOST', '127.0.0.1'),
         'server.socket_port': 8081,
         'engine.autoreload.on': False,
     })

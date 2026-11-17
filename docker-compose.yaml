@@ -1,19 +1,103 @@
-version: '3.8'
+# Бот «Пушкинская карта»: база, бэкапы, бот, сайт выбора мест.
+# Снаружи доступен только через общий nginx-proxy сервера (сеть PROXY_NETWORK):
+#   https://$DOMAIN/webhook -> bot:8080,  https://$DOMAIN/ -> web:8081.
+# Запуск: docker compose up -d --build   (настройки — в .env, см. .env.example)
+name: kino
+
+x-app: &app
+  # образ собирает только bot (см. ниже), остальные берут готовый
+  image: kino-app
+  pull_policy: never
+  restart: always
+  env_file: .env
+  depends_on:
+    db:
+      condition: service_healthy
+  volumes:
+    - kino_logs:/app/logs
+    - kino_xml:/app/xml_files
 
 services:
-  postgres:
-    container_name: kino
-    image: postgres:latest
+  db:
+    image: postgres:17-alpine
     restart: always
     environment:
       POSTGRES_DB: dbname_kino
       POSTGRES_USER: username_kino
-      POSTGRES_PASSWORD: password_kino
-    ports:
-      - "5789:5432"
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
+    # портов наружу нет: база доступна только контейнерам этого проекта
     volumes:
-      - kino_data:/var/lib/postgresql
+      - kino_data:/var/lib/postgresql/data
+      # схема и кинотеатры применяются автоматически при первом создании базы
+      - ./deploy/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     command: postgres -N 500
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U username_kino -d dbname_kino"]
+      interval: 10s
+      retries: 10
+
+  # ежедневный дамп базы, хранится 7 дней / 4 недели / 6 месяцев (volume kino_backups)
+  db-backup:
+    image: prodrigestivill/postgres-backup-local:17-alpine
+    restart: always
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: dbname_kino
+      POSTGRES_USER: username_kino
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      SCHEDULE: "@daily"
+      BACKUP_KEEP_DAYS: 7
+      BACKUP_KEEP_WEEKS: 4
+      BACKUP_KEEP_MONTHS: 6
+    volumes:
+      - kino_backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # бот MAX: вебхук + синхронизация расписания/реестра + обработка платежей
+  bot:
+    <<: *app
+    build: .
+    pull_policy: build
+    command: python main.py
+    environment:
+      WEBHOOK_HOST: 0.0.0.0
+      WEBHOOK_PORT: 8080
+      VIRTUAL_HOST: ${DOMAIN:?задайте DOMAIN в .env}
+      VIRTUAL_PATH: /webhook
+      VIRTUAL_PORT: 8080
+      LETSENCRYPT_HOST: ${DOMAIN}
+    networks: [default, proxy]
+
+  # отправка сообщений в MAX по запросу сайта (только внутри проекта)
+  send:
+    <<: *app
+    command: python server.py
+    environment:
+      SEND_HOST: 0.0.0.0
+
+  # сайт выбора мест (Django)
+  web:
+    <<: *app
+    working_dir: /app/webapp_site
+    command: python server.py
+    environment:
+      WEB_HOST: 0.0.0.0
+      SEND_MESSAGE_URL: http://send:8001/send_message
+      VIRTUAL_HOST: ${DOMAIN}
+      VIRTUAL_PATH: /
+      VIRTUAL_PORT: 8081
+      LETSENCRYPT_HOST: ${DOMAIN}
+    networks: [default, proxy]
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:?задайте PROXY_NETWORK в .env — сеть контейнера edge-nginx}
 
 volumes:
   kino_data:
+  kino_backups:
+  kino_logs:
+  kino_xml:

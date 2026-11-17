@@ -23,9 +23,18 @@ IS_PROD = os.getenv('IS_PROD')
 youkassa_shop_id = os.getenv('YOUKASSA_SHOP_ID')
 youkassa_secret_key = os.getenv('YOUKASSA_SECRET_KEY')
 
-# ─── Валидация (Почта Банк) ───────────────────────────────────────────────────
-validation_url = os.getenv('VALIDATION_URL')
-pochta_bank_token = os.getenv('POCHTA_BANK_TOKEN')
+# ─── Сервис оператора «Пушкинской карты» (метод validation) ──────────────────
+validation_url = os.getenv('VALIDATION_URL')  # метод tickets/check ВТБ
+pochta_bank_token = os.getenv('POCHTA_BANK_TOKEN')  # токен из PRO.Культура.РФ
+# идентификатор банка-эквайера в НСПК (AIIC из карточки терминала на PRO.Культура.РФ)
+pushkin_term_inst_id = os.getenv('PUSHKIN_TERM_INST_ID')
+# срок действия токена (YYYY-MM-DD) — бот заранее напомнит админу о замене
+pochta_bank_token_expires = os.getenv('POCHTA_BANK_TOKEN_EXPIRES')
+prokultura_api_key = os.getenv('PROKULTURA_API_KEY')
+
+# ─── ЕАИС (загрузка XML на ekinobilet.ru) ─────────────────────────────────────
+ekinobilet_login = os.getenv('EKINOBILET_LOGIN')
+ekinobilet_password = os.getenv('EKINOBILET_PASSWORD')
 
 # ─── Внешние API ──────────────────────────────────────────────────────────────
 pro_kino_api_key = os.getenv('PRO_KINO_API_KEY')

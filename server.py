@@ -1,4 +1,5 @@
 import asyncio
+import os
 from aiohttp import web
 from loguru import logger
 from maxapi.enums import ParseMode
@@ -46,7 +47,8 @@ async def start_send_server():
 
     site = web.TCPSite(
         runner,
-        host="0.0.0.0",
+        # эндпоинт без авторизации: снаружи недоступен (127.0.0.1 или внутренняя сеть docker)
+        host=os.getenv("SEND_HOST", "127.0.0.1"),
         port=8001
     )
 

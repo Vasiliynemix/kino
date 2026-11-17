@@ -1,0 +1,16 @@
+.git
+.env
+.env.*
+!.env.example
+.venv
+.idea
+.claude
+_local
+docs
+logs
+xml_files
+**/__pycache__
+**/*.pyc
+webapp_site/db.sqlite3
+deploy/systemd
+deploy/nginx

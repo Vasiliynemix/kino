@@ -10,24 +10,33 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# общий .env проекта (корень репозитория)
+load_dotenv(BASE_DIR.parent / '.env')
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-ofo!vj4jq7x16k!fzl6(c0qo@ts@vk9r-9sn7_$(cboh@5w)2%'
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY') or 'django-insecure-ofo!vj4jq7x16k!fzl6(c0qo@ts@vk9r-9sn7_$(cboh@5w)2%'
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
 
 ALLOWED_HOSTS = ['*']
 
-CSRF_TRUSTED_ORIGINS = ["https://vz-nemix-2313.ru", "https://epic-man-obviously.ngrok-free.app", "https://kino.finance-tracker-api.ru"]
+# домен сайта берётся из URL в .env — при смене домена код править не нужно
+CSRF_TRUSTED_ORIGINS = [u for u in (os.getenv('URL'), os.getenv('URL_SERVER')) if u] + [
+    "https://vz-nemix-2313.ru", "https://epic-man-obviously.ngrok-free.app", "https://kino.finance-tracker-api.ru",
+]
 
 
 # Application definition

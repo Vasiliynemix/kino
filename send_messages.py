@@ -9,6 +9,7 @@ from loguru import logger
 from maxapi.enums.attachment import AttachmentType
 from maxapi.types import ButtonsPayload, CallbackButton, MessageCallback, LinkButton, Attachment, OtherAttachmentPayload
 
+import pushkin
 from config import bot, db_path, months_ru, url_server, info_log_file
 from pkg.log import CustomLogger
 
@@ -213,7 +214,8 @@ async def send_movies(callback: MessageCallback, date: str) -> None:
                         ORDER BY hallname, time ASC
                     """
                     curs.execute(query, params)
-                    performances = curs.fetchall()
+                    # только сеансы, разрешённые реестром /pushkinsCardEvents для этой площадки
+                    performances = [p for p in curs.fetchall() if pushkin.find_event(curs, p[0])]
                     if not performances:
                         continue
 

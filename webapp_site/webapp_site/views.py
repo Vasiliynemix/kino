@@ -74,13 +74,50 @@ def is_hidden_performance(performance_id) -> bool:
             return curs.fetchone() is not None
 
 
+def is_pushkin_performance(performance_id) -> bool:
+    """
+    Сеанс есть в реестре /pushkinsCardEvents для площадки этого кинотеатра и в периоде показа.
+    Таблицу pushkin_periods заполняет бот (base_requests.what_show_can_be_sell_pushkin_card),
+    там же окончательная проверка перед выдачей билета.
+    """
+    try:
+        with psycopg2.connect(db_path) as data:
+            with data.cursor() as curs:
+                curs.execute(
+                    """SELECT 1
+                       FROM performance p
+                       JOIN cinemas c ON c.building_id = p.building_id
+                       JOIN pushkin_periods pp ON pp.show_id = p.show_id AND pp.city = c.city
+                       WHERE p.performance_id = %s
+                         AND EXTRACT(EPOCH FROM (p.date || ' ' || p.time)::timestamp AT TIME ZONE pp.tz) * 1000
+                             BETWEEN pp.start_ms AND pp.end_ms
+                       LIMIT 1""",
+                    (performance_id,))
+                return curs.fetchone() is not None
+    except Exception:
+        # таблицы ещё нет (бот не перезапущен) — решение примет проверка в боте
+        logger.exception("is_pushkin_performance")
+        return True
+
+
+def client_ip(request) -> str:
+    # X-Real-IP выставляет прокси (nginx-proxy) из адреса соединения — подделать нельзя
+    real_ip = request.META.get('HTTP_X_REAL_IP')
+    if real_ip:
+        return real_ip.strip()
+    forwarded = request.META.get('HTTP_X_FORWARDED_FOR')
+    if forwarded:
+        return forwarded.split(',')[0].strip()
+    return request.META.get('REMOTE_ADDR') or '0.0.0.0'
+
+
 def serialize_attachments(attachments):
     return [a.model_dump() for a in attachments]
 
 
 def send_message_sync(chat_id: int, user_id: int, text: str, attachments=None):
     requests.post(
-        "http://localhost:8001/send_message",
+        os.getenv("SEND_MESSAGE_URL", "http://localhost:8001/send_message"),
         json={
             "chat_id": chat_id,
             "user_id": user_id,
@@ -403,10 +440,18 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price, or
                                 f'Ваш билет\nРяд {did_he_almoust_bye[0]} Место {did_he_almoust_bye[1]} Цена {did_he_almoust_bye[2]}\nНомер заказа {did_he_almoust_bye[3]}')
         return render(request, 'finish.html')
 
+    # событие могли исключить из программы после показа расписания
+    if not is_pushkin_performance(performance_id):
+        unblock_performance(user_id, performance_id)
+        return HttpResponse("Продажа билетов по Пушкинской карте на этот сеанс недоступна",
+                            content_type="text/plain; charset=utf-8")
+
     Configuration.account_id = int(youkassa_shop_id)
     Configuration.secret_key = youkassa_secret_key
 
     # делаем оплату юкасса
+    # capture=False: деньги только замораживаются, списание — после одобрения
+    # оператора «Пушкинской карты» (base_requests.check_payment_status)
     payment = Payment.create({
         "amount": {
             "value": str(float(price)),
@@ -416,7 +461,7 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price, or
             "type": "redirect",
             "return_url": f"{bot_url}?start=finishpayment,{order_id}"
         },
-        "capture": True,
+        "capture": False,
         "description": f"Заказ №{order_id}",
     }, uuid.uuid4())
 
@@ -429,6 +474,15 @@ def payment_button_pressed(request, user_id, performance_id, place_id, price, or
             curs.execute(
                 """UPDATE orders SET status = 3, payment_id = %s, payment_link = %s WHERE order_id = %s AND user_id = %s AND performance_id = %s""",
                 (payment_id, payment_link, order_id, user_id, performance_id))
+
+    # IP покупателя нужен сервису оператора; колонку создаёт бот при старте
+    try:
+        with psycopg2.connect(db_path) as dataf:
+            with dataf.cursor() as curs:
+                curs.execute("UPDATE orders SET client_ip = %s WHERE order_id = %s",
+                             (client_ip(request), order_id))
+    except Exception:
+        logger.exception("client_ip")
 
     return render(request, 'payment.html',
                   {'iframe_url': payment_link, 'close_webapp': True, 'order_id': order_id, 'user_id': user_id})
