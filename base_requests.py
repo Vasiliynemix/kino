@@ -673,12 +673,9 @@ async def send_xml_to_ekinobilet(performance_data, show_data, payment, fond_kino
         with open(xml_file, 'wb') as f:
             f.write(xml_data)
 
-        try:
-            await notify_admin(f'xml_file_name {order_id}\n{xml_file}')
-            await send_document_sync(ADMIN_ID_CHAT, ADMIN_ID, xml_file, caption=f"XML файл заказа {order_id}",
-                                     filename=os.path.basename(xml_file))
-        except Exception:
-            logger.exception("send_document_sync")
+        # копия отчёта админу текстом: файлом MAX его не принимает (не может определить тип)
+        await notify_admin(f'XML заказа {order_id}: {os.path.basename(xml_file)}\n\n'
+                           f'{xml_data.decode("utf-8")}')
 
         if not (ekinobilet_login and ekinobilet_password):
             await notify_admin(f'!!!!Отчёт в ЕАИС не отправлен: нет EKINOBILET_LOGIN/EKINOBILET_PASSWORD в .env\n'
@@ -688,6 +685,7 @@ async def send_xml_to_ekinobilet(performance_data, show_data, payment, fond_kino
         with open(xml_file, 'rb') as f:
             for _ in range(5):
                 try:
+                    f.seek(0)  # после неудачной попытки файл дочитан до конца
                     response = requests.post(
                         'https://ekinobilet.ru/ekbs/upload.aspx',
                         data=auth,
